@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+*.log
+ngrok-url.txt
+.env
+*.env.local
+dist/
+build/

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clinician App - Video Streaming</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏥 On-Site Clinician</h1>
+            <div class="status-indicator" id="connectionStatus">
+                <span class="dot offline"></span>
+                <span id="statusText">Disconnected</span>
+            </div>
+        </header>
+
+        <div class="setup-panel" id="setupPanel">
+            <h2>Join Session</h2>
+            <div class="form-group">
+                <label for="userName">Your Name:</label>
+                <input type="text" id="userName" placeholder="Dr. Smith" value="Dr. Clinician">
+            </div>
+            <div class="form-group">
+                <label for="roomId">Room ID:</label>
+                <input type="text" id="roomId" placeholder="room-123" value="room-123">
+            </div>
+            <button id="startBtn" class="btn btn-primary">Start Streaming</button>
+        </div>
+
+        <div class="video-container" id="videoContainer" style="display: none;">
+            <div class="video-wrapper">
+                <video id="localVideo" autoplay muted playsinline></video>
+                <div class="video-label">Your Camera</div>
+                <div class="annotations-overlay" id="annotationsOverlay"></div>
+            </div>
+            
+            <div class="controls">
+                <button id="toggleVideoBtn" class="btn">📹 Video On</button>
+                <button id="toggleAudioBtn" class="btn">🎤 Audio On</button>
+                <button id="stopBtn" class="btn btn-danger">Stop Streaming</button>
+            </div>
+
+            <div class="info-panel">
+                <h3>Connected Experts</h3>
+                <div id="expertsList" class="experts-list">
+                    <p class="no-experts">Waiting for experts to join...</p>
+                </div>
+                <div class="room-info">
+                    <strong>Room ID:</strong> <span id="currentRoomId"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+

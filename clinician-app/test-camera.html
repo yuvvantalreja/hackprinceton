@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Test - Diagnostic Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        video {
+            width: 100%;
+            max-width: 640px;
+            background: #000;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        .error {
+            background: #ffebee;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            color: #c62828;
+        }
+        .success {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            color: #2e7d32;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .device-list {
+            margin: 10px 0;
+        }
+        .device-item {
+            padding: 8px;
+            background: #f9f9f9;
+            margin: 5px 0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Camera/Microphone Diagnostic Tool</h1>
+        <p>This tool helps diagnose camera and microphone access issues.</p>
+        
+        <button onclick="checkBrowserSupport()">1. Check Browser Support</button>
+        <button onclick="listDevices()">2. List Available Devices</button>
+        <button onclick="testCamera()">3. Test Camera Access</button>
+        <button onclick="testAudio()">4. Test Microphone Access</button>
+        <button onclick="testBoth()">5. Test Both</button>
+        
+        <div id="output"></div>
+        
+        <video id="testVideo" autoplay muted playsinline style="display: none;"></video>
+        <audio id="testAudio" autoplay style="display: none;"></audio>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const testVideo = document.getElementById('testVideo');
+        const testAudio = document.getElementById('testAudio');
+
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = message;
+            output.appendChild(div);
+            console.log(message);
+        }
+
+        function clearOutput() {
+            output.innerHTML = '';
+        }
+
+        function checkBrowserSupport() {
+            clearOutput();
+            log('<h3>Browser Support Check</h3>', 'info');
+            
+            const checks = {
+                'MediaDevices API': !!navigator.mediaDevices,
+                'getUserMedia': !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+                'enumerateDevices': !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices),
+                'WebRTC': !!(window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection),
+                'HTTPS or localhost': window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            };
+            
+            let allGood = true;
+            for (const [check, result] of Object.entries(checks)) {
+                if (result) {
+                    log(`✅ ${check}: Supported`, 'success');
+                } else {
+                    log(`❌ ${check}: Not supported`, 'error');
+                    allGood = false;
+                }
+            }
+            
+            if (allGood) {
+                log('<strong>All browser checks passed!</strong>', 'success');
+            } else {
+                log('<strong>Some browser features are not supported. Please use a modern browser.</strong>', 'error');
+            }
+        }
+
+        async function listDevices() {
+            clearOutput();
+            log('<h3>Available Devices</h3>', 'info');
+            
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                log('❌ enumerateDevices not supported', 'error');
+                return;
+            }
+            
+            try {
+                // First, get user media to get device labels (requires permission)
+                try {
+                    await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                } catch (e) {
+                    log('⚠️ Need permission to see device labels. Requesting...', 'info');
+                }
+                
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                const audioInputDevices = devices.filter(d => d.kind === 'audioinput');
+                const audioOutputDevices = devices.filter(d => d.kind === 'audiooutput');
+                
+                log(`<strong>Video Input Devices (${videoDevices.length}):</strong>`, 'info');
+                if (videoDevices.length === 0) {
+                    log('❌ No video input devices found', 'error');
+                } else {
+                    videoDevices.forEach((device, index) => {
+                        log(`<div class="device-item">${index + 1}. ${device.label || 'Unknown Camera'} (ID: ${device.deviceId.substring(0, 20)}...)</div>`, 'info');
+                    });
+                }
+                
+                log(`<strong>Audio Input Devices (${audioInputDevices.length}):</strong>`, 'info');
+                if (audioInputDevices.length === 0) {
+                    log('⚠️ No audio input devices found', 'error');
+                } else {
+                    audioInputDevices.forEach((device, index) => {
+                        log(`<div class="device-item">${index + 1}. ${device.label || 'Unknown Microphone'} (ID: ${device.deviceId.substring(0, 20)}...)</div>`, 'info');
+                    });
+                }
+                
+                log(`<strong>Audio Output Devices (${audioOutputDevices.length}):</strong>`, 'info');
+                audioOutputDevices.forEach((device, index) => {
+                    log(`<div class="device-item">${index + 1}. ${device.label || 'Unknown Speaker'}</div>`, 'info');
+                });
+                
+            } catch (error) {
+                log(`❌ Error enumerating devices: ${error.name} - ${error.message}`, 'error');
+                log(`<pre>${error.stack}</pre>`, 'error');
+            }
+        }
+
+        async function testCamera() {
+            clearOutput();
+            log('<h3>Testing Camera Access</h3>', 'info');
+            
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                log('❌ getUserMedia not supported', 'error');
+                return;
+            }
+            
+            try {
+                log('Requesting camera access...', 'info');
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: true,
+                    audio: false
+                });
+                
+                const videoTrack = stream.getVideoTracks()[0];
+                log(`✅ Camera accessed successfully!`, 'success');
+                log(`Camera: ${videoTrack.label}`, 'success');
+                log(`Settings: ${JSON.stringify(videoTrack.getSettings(), null, 2)}`, 'info');
+                
+                testVideo.srcObject = stream;
+                testVideo.style.display = 'block';
+                
+                log('✅ Video should be visible above', 'success');
+                
+                // Clean up after 10 seconds
+                setTimeout(() => {
+                    stream.getTracks().forEach(track => track.stop());
+                    testVideo.srcObject = null;
+                    testVideo.style.display = 'none';
+                    log('Camera stream stopped', 'info');
+                }, 10000);
+                
+            } catch (error) {
+                log(`❌ Camera access failed: ${error.name}`, 'error');
+                log(`Message: ${error.message}`, 'error');
+                
+                if (error.name === 'NotAllowedError') {
+                    log('🔒 Permission denied. Please:', 'error');
+                    log('1. Click the lock/camera icon in the address bar', 'error');
+                    log('2. Allow camera access', 'error');
+                    log('3. Refresh and try again', 'error');
+                    log('4. On macOS: Check System Preferences > Security & Privacy > Camera', 'error');
+                } else if (error.name === 'NotFoundError') {
+                    log('📷 No camera found. Please connect a camera.', 'error');
+                } else if (error.name === 'NotReadableError') {
+                    log('⚠️ Camera is in use by another application. Close Zoom, Teams, etc.', 'error');
+                } else {
+                    log(`<pre>${error.stack}</pre>`, 'error');
+                }
+            }
+        }
+
+        async function testAudio() {
+            clearOutput();
+            log('<h3>Testing Microphone Access</h3>', 'info');
+            
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                log('❌ getUserMedia not supported', 'error');
+                return;
+            }
+            
+            try {
+                log('Requesting microphone access...', 'info');
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: false,
+                    audio: true
+                });
+                
+                const audioTrack = stream.getAudioTracks()[0];
+                log(`✅ Microphone accessed successfully!`, 'success');
+                log(`Microphone: ${audioTrack.label}`, 'success');
+                log(`Settings: ${JSON.stringify(audioTrack.getSettings(), null, 2)}`, 'info');
+                
+                testAudio.srcObject = stream;
+                
+                log('✅ Microphone is active. Try speaking to test.', 'success');
+                
+                // Show audio level
+                const audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(stream);
+                const analyser = audioContext.createAnalyser();
+                source.connect(analyser);
+                
+                // Clean up after 10 seconds
+                setTimeout(() => {
+                    stream.getTracks().forEach(track => track.stop());
+                    testAudio.srcObject = null;
+                    audioContext.close();
+                    log('Microphone stream stopped', 'info');
+                }, 10000);
+                
+            } catch (error) {
+                log(`❌ Microphone access failed: ${error.name}`, 'error');
+                log(`Message: ${error.message}`, 'error');
+                
+                if (error.name === 'NotAllowedError') {
+                    log('🔒 Permission denied. Please:', 'error');
+                    log('1. Click the lock/microphone icon in the address bar', 'error');
+                    log('2. Allow microphone access', 'error');
+                    log('3. Refresh and try again', 'error');
+                    log('4. On macOS: Check System Preferences > Security & Privacy > Microphone', 'error');
+                } else if (error.name === 'NotFoundError') {
+                    log('🎤 No microphone found. Please connect a microphone.', 'error');
+                } else if (error.name === 'NotReadableError') {
+                    log('⚠️ Microphone is in use by another application.', 'error');
+                } else {
+                    log(`<pre>${error.stack}</pre>`, 'error');
+                }
+            }
+        }
+
+        async function testBoth() {
+            clearOutput();
+            log('<h3>Testing Camera + Microphone</h3>', 'info');
+            
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                log('❌ getUserMedia not supported', 'error');
+                return;
+            }
+            
+            try {
+                log('Requesting camera and microphone access...', 'info');
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: true,
+                    audio: true
+                });
+                
+                const videoTrack = stream.getVideoTracks()[0];
+                const audioTrack = stream.getAudioTracks()[0];
+                
+                log(`✅ Both camera and microphone accessed successfully!`, 'success');
+                log(`Camera: ${videoTrack.label}`, 'success');
+                log(`Microphone: ${audioTrack.label}`, 'success');
+                
+                testVideo.srcObject = stream;
+                testVideo.style.display = 'block';
+                
+                log('✅ Video should be visible above. Try speaking to test microphone.', 'success');
+                
+                // Clean up after 15 seconds
+                setTimeout(() => {
+                    stream.getTracks().forEach(track => track.stop());
+                    testVideo.srcObject = null;
+                    testVideo.style.display = 'none';
+                    log('Stream stopped', 'info');
+                }, 15000);
+                
+            } catch (error) {
+                log(`❌ Access failed: ${error.name}`, 'error');
+                log(`Message: ${error.message}`, 'error');
+                
+                if (error.name === 'NotAllowedError') {
+                    log('🔒 Permission denied. Please allow camera AND microphone access.', 'error');
+                } else {
+                    log(`<pre>${error.stack}</pre>`, 'error');
+                }
+            }
+        }
+
+        // Auto-run browser check on load
+        window.addEventListener('load', () => {
+            checkBrowserSupport();
+        });
+    </script>
+</body>
+</html>
+

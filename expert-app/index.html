@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expert App - Remote Consultation</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🩺 Remote Expert</h1>
+            <div class="status-indicator" id="connectionStatus">
+                <span class="dot offline"></span>
+                <span id="statusText">Disconnected</span>
+            </div>
+        </header>
+
+        <div class="setup-panel" id="setupPanel">
+            <h2>Join Consultation</h2>
+            <div class="form-group">
+                <label for="userName">Your Name:</label>
+                <input type="text" id="userName" placeholder="Dr. Johnson" value="Dr. Expert">
+            </div>
+            <div class="form-group">
+                <label for="roomId">Room ID:</label>
+                <input type="text" id="roomId" placeholder="room-123" value="room-123">
+            </div>
+            <button id="joinBtn" class="btn btn-primary">Join Session</button>
+        </div>
+
+        <div class="consultation-container" id="consultationContainer" style="display: none;">
+            <div class="video-section">
+                <div class="video-wrapper">
+                    <video id="remoteVideo" autoplay playsinline></video>
+                    <div class="video-label">Clinician's Camera</div>
+                    <canvas id="annotationCanvas"></canvas>
+                    <div id="videoStatus" class="video-status">Waiting for video stream...</div>
+                </div>
+                
+                <div class="annotation-toolbar">
+                    <h3>🎨 Annotation Tools</h3>
+                    <div class="tool-buttons">
+                        <button id="arrowBtn" class="tool-btn active" data-tool="arrow">
+                            👇 Arrow
+                        </button>
+                        <button id="textBtn" class="tool-btn" data-tool="text">
+                            💬 Text
+                        </button>
+                        <button id="clearBtn" class="tool-btn tool-btn-clear">
+                            🗑️ Clear All
+                        </button>
+                    </div>
+                    <div id="textInputPanel" class="text-input-panel" style="display: none;">
+                        <input type="text" id="annotationText" placeholder="Enter text annotation..." maxlength="50">
+                        <button id="addTextBtn" class="btn btn-small">Add</button>
+                    </div>
+                    <p class="tool-hint">Click on the video to place annotations</p>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="info-card">
+                    <h3>Session Info</h3>
+                    <div class="info-item">
+                        <strong>Room ID:</strong>
+                        <span id="currentRoomId"></span>
+                    </div>
+                    <div class="info-item">
+                        <strong>Stream Status:</strong>
+                        <span id="streamStatus" class="badge badge-warning">Connecting...</span>
+                    </div>
+                </div>
+
+                <div class="info-card">
+                    <h3>Connected Users</h3>
+                    <div id="usersList" class="users-list">
+                        <p class="no-users">Loading...</p>
+                    </div>
+                </div>
+
+                <div class="info-card">
+                    <h3>Controls</h3>
+                    <button id="toggleAudioBtn" class="btn btn-block">🔊 Audio On</button>
+                    <button id="leaveBtn" class="btn btn-block btn-danger">Leave Session</button>
+                </div>
+
+                <div class="info-card tips-card">
+                    <h3>💡 Tips</h3>
+                    <ul>
+                        <li>Click to place arrow pointers</li>
+                        <li>Add text notes for clarity</li>
+                        <li>Annotations auto-clear after 5s</li>
+                        <li>Use clear all to reset</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+
