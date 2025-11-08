@@ -230,6 +230,20 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('clear-annotations');
   });
 
+  // Hand skeleton streaming (expert -> clinician)
+  socket.on('hand-skeleton', ({ roomId, skeleton }) => {
+    // skeleton: { landmarks: [{x,y,z}...], handedness?: 'Left'|'Right', clear?: boolean, ts?: number }
+    if (!roomId) {
+      return;
+    }
+    // Broadcast to everyone else in the room
+    socket.to(roomId).emit('hand-skeleton', {
+      skeleton,
+      senderId: socket.id,
+      timestamp: Date.now()
+    });
+  });
+
   // Handle disconnection
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
@@ -269,4 +283,3 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`🚀 Signaling server running on port ${PORT}`);
 });
-

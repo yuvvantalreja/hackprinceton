@@ -93,6 +93,15 @@ clearBtn.addEventListener('click', clearAllAnnotations);
 annotationCanvas.addEventListener('click', handleCanvasClick);
 addTextBtn.addEventListener('click', addTextAnnotation);
 
+// Hand Guidance state
+let handGuidanceEnabled = false;
+let handsLibLoaded = false;
+let handsInstance = null;
+let handCamera = null;
+let handVideoEl = null;
+let lastSkeletonSentAt = 0;
+const HAND_SKELETON_FPS = 15; // throttle to ~15 fps
+
 // Initialize Socket.IO connection
 function initializeSocket() {
     socket = io(SIGNALING_SERVER);
@@ -141,6 +150,9 @@ async function joinSession() {
     currentRoomId.textContent = roomId;
 
     console.log('Joined session');
+
+    // Optionally auto-enable Hand Guidance once joined (kept off by default)
+    // enableHandGuidance().catch(() => {});
 }
 
 // Leave session
@@ -154,6 +166,9 @@ function leaveSession() {
         remoteStream.getTracks().forEach(track => track.stop());
         remoteStream = null;
     }
+
+    // Stop hand guidance if running
+    disableHandGuidance();
 
     if (socket) {
         socket.disconnect();
@@ -436,4 +451,151 @@ function updateConnectionStatus(connected) {
 // Resize canvas when video loads
 remoteVideo.addEventListener('loadedmetadata', resizeCanvas);
 window.addEventListener('resize', resizeCanvas);
+
+// -----------------------------
+// Hand Guidance (MediaPipe Hands)
+// -----------------------------
+
+function createHandGuidanceUI() {
+    const ui = document.createElement('div');
+    ui.style.cssText = 'position: fixed; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; z-index: 1000; display: flex; gap: 8px; align-items: center;';
+    ui.id = 'handGuidancePanel';
+    const label = document.createElement('span');
+    label.textContent = '✋ Hand Guidance';
+    const btn = document.createElement('button');
+    btn.id = 'toggleHandGuidanceBtn';
+    btn.textContent = 'Enable';
+    btn.style.cssText = 'padding: 5px 8px; cursor: pointer;';
+    btn.addEventListener('click', async () => {
+        if (!roomId) {
+            alert('Join a room first to use Hand Guidance.');
+            return;
+        }
+        if (handGuidanceEnabled) {
+            disableHandGuidance();
+        } else {
+            try {
+                await enableHandGuidance();
+            } catch (e) {
+                console.error('Failed to enable hand guidance:', e);
+                alert('Failed to enable Hand Guidance. Please allow camera permission and try again.');
+            }
+        }
+        btn.textContent = handGuidanceEnabled ? 'Disable' : 'Enable';
+    });
+    ui.appendChild(label);
+    ui.appendChild(btn);
+    document.body.appendChild(ui);
+}
+
+function loadScript(url) {
+    return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.async = true;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+    });
+}
+
+async function loadHandsLibrary() {
+    if (handsLibLoaded) return;
+    // Load classic MediaPipe Hands libs from CDN
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
+    handsLibLoaded = true;
+}
+
+async function enableHandGuidance() {
+    if (handGuidanceEnabled) return;
+    await loadHandsLibrary();
+
+    // Create hidden video element for hand camera
+    if (!handVideoEl) {
+        handVideoEl = document.createElement('video');
+        handVideoEl.setAttribute('playsinline', '');
+        handVideoEl.muted = true;
+        handVideoEl.autoplay = true;
+        handVideoEl.style.cssText = 'position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;';
+        handVideoEl.id = 'expertHandCam';
+        document.body.appendChild(handVideoEl);
+    }
+
+    // Initialize MediaPipe Hands
+    handsInstance = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    handsInstance.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.5
+    });
+    handsInstance.onResults(onHandsResults);
+
+    // Camera from MediaPipe camera utils
+    handCamera = new Camera(handVideoEl, {
+        onFrame: async () => {
+            if (!handsInstance) return;
+            await handsInstance.send({ image: handVideoEl });
+        },
+        width: 640,
+        height: 480
+    });
+    handCamera.start();
+
+    handGuidanceEnabled = true;
+}
+
+function disableHandGuidance() {
+    if (!handGuidanceEnabled) return;
+    try {
+        if (handCamera && handCamera.stop) {
+            handCamera.stop();
+        }
+    } catch (e) {
+        // ignore
+    }
+    handCamera = null;
+    handsInstance = null;
+    handGuidanceEnabled = false;
+    // Notify clinician to clear overlay
+    if (socket && roomId) {
+        socket.emit('hand-skeleton', { roomId, skeleton: { clear: true, ts: Date.now() } });
+    }
+}
+
+function onHandsResults(results) {
+    // Throttle send rate
+    const now = Date.now();
+    if (now - lastSkeletonSentAt < (1000 / HAND_SKELETON_FPS)) {
+        return;
+    }
+
+    let payload;
+    if (results && results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0] || [];
+        const handedness = (results.multiHandedness && results.multiHandedness[0] && results.multiHandedness[0].label) || null;
+        payload = {
+            landmarks: landmarks.map(p => ({ x: p.x, y: p.y, z: p.z })),
+            handedness,
+            ts: now
+        };
+    } else {
+        // No hand detected
+        payload = { clear: true, ts: now };
+    }
+
+    if (socket && roomId) {
+        socket.emit('hand-skeleton', { roomId, skeleton: payload });
+        lastSkeletonSentAt = now;
+    }
+}
+
+// Build Hand Guidance UI when page is ready
+window.addEventListener('DOMContentLoaded', () => {
+    createHandGuidanceUI();
+});
 
