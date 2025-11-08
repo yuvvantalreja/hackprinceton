@@ -6,3 +6,6 @@ ngrok-url.txt
 *.env.local
 dist/
 build/
+pycache/
+myenv/
+.venv/

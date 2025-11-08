@@ -19,6 +19,8 @@ app.use(express.json());
 // Serve static files for both apps
 app.use('/clinician', express.static(path.join(__dirname, '../clinician-app')));
 app.use('/expert', express.static(path.join(__dirname, '../expert-app')));
+// Serve CAD/OBJ assets
+app.use('/assets', express.static(path.join(__dirname, '../jarvis/online')));
 
 // Root route - show selection page
 app.get('/', (req, res) => {
@@ -239,6 +241,28 @@ io.on('connection', (socket) => {
     // Broadcast to everyone else in the room
     socket.to(roomId).emit('hand-skeleton', {
       skeleton,
+      senderId: socket.id,
+      timestamp: Date.now()
+    });
+  });
+
+  // CAD object state streaming (expert/python -> clinician)
+  socket.on('cad-state', ({ roomId, state }) => {
+    // state: { objects: [{ id, name, type, position:{x,y,z}, rotation:{x,y,z}, scale, grabbed?: boolean }], clear?: boolean }
+    if (!roomId) return;
+    socket.to(roomId).emit('cad-state', {
+      state,
+      senderId: socket.id,
+      timestamp: Date.now()
+    });
+  });
+
+  // CAD object selection (expert UI -> python and viewers)
+  socket.on('cad-select', ({ roomId, select }) => {
+    // select: { id?: string|number, name?: string, action: 'select'|'clear' }
+    if (!roomId) return;
+    socket.to(roomId).emit('cad-select', {
+      select,
       senderId: socket.id,
       timestamp: Date.now()
     });
