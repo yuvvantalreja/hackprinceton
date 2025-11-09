@@ -10,15 +10,25 @@ const io = socketIO(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
-  }
+  },
+  // Enforce WebSocket-only for lower latency (skip HTTP long-polling upgrade path)
+  transports: ["websocket"],
+  // Disable per-message deflate to reduce CPU overhead and tail latency for small signaling messages
+  perMessageDeflate: false,
 });
 
 app.use(cors());
 app.use(express.json());
 
-// Serve static files for both apps
-app.use('/clinician', express.static(path.join(__dirname, '../clinician-app')));
-app.use('/expert', express.static(path.join(__dirname, '../expert-app')));
+// Serve static files for both apps with basic caching to speed repeat loads
+const staticOpts = {
+  maxAge: '1d',
+  etag: true,
+  lastModified: true,
+  cacheControl: true,
+};
+app.use('/clinician', express.static(path.join(__dirname, '../clinician-app'), staticOpts));
+app.use('/expert', express.static(path.join(__dirname, '../expert-app'), staticOpts));
 
 // In-memory storage for latest expert hand landmarks per room
 const lastSkeletonByRoom = new Map();

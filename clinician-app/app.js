@@ -80,7 +80,11 @@ toggleAudioBtn.addEventListener('click', toggleAudio);
 
 // Initialize Socket.IO connection
 function initializeSocket() {
-    socket = io(SIGNALING_SERVER);
+    socket = io(SIGNALING_SERVER, {
+        transports: ['websocket'],
+        upgrade: false,
+        forceNew: true,
+    });
 
     socket.on('connect', () => {
         updateConnectionStatus(true);
@@ -419,6 +423,8 @@ async function handleIceCandidate({ candidate, senderId }) {
 // Create peer connection
 function createPeerConnection(peerId) {
     const pc = new RTCPeerConnection({
+        bundlePolicy: 'max-bundle',
+        iceCandidatePoolSize: 2,
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' }
@@ -439,6 +445,9 @@ function createPeerConnection(peerId) {
                     parameters.encodings[0].maxBitrate = 2500000; // ~2.5 Mbps
                     parameters.encodings[0].maxFramerate = 30;
                     parameters.encodings[0].scaleResolutionDownBy = 1.0;
+                    // Prefer low-latency path on networks that honor priorities
+                    parameters.encodings[0].priority = 'high';
+                    parameters.encodings[0].networkPriority = 'high';
                     sender.setParameters(parameters).catch(e => console.warn('setParameters failed:', e));
                 } catch (e) {
                     console.warn('Unable to set sender parameters:', e);

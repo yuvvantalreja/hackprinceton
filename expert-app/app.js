@@ -101,11 +101,17 @@ let handsInstance = null;
 let handCamera = null;
 let handVideoEl = null;
 let lastSkeletonSentAt = 0;
-const HAND_SKELETON_FPS = 30; // throttle to ~30 fps
+const HAND_SKELETON_FPS = 20; // throttle to ~20 fps to reduce CPU + network overhead
+let lastSkeletonSignature = null;
+let lastSkeletonChangeAt = 0;
 
 // Initialize Socket.IO connection
 function initializeSocket() {
-    socket = io(SIGNALING_SERVER);
+    socket = io(SIGNALING_SERVER, {
+        transports: ['websocket'],
+        upgrade: false,
+        forceNew: true,
+    });
 
     socket.on('connect', () => {
         updateConnectionStatus(true);
@@ -278,6 +284,8 @@ async function handleIceCandidate({ candidate, senderId }) {
 // Create peer connection
 function createPeerConnection() {
     const pc = new RTCPeerConnection({
+        bundlePolicy: 'max-bundle',
+        iceCandidatePoolSize: 2,
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' }
@@ -587,7 +595,7 @@ function onHandsResults(results) {
         return;
     }
 
-    const round3 = (v) => Math.round(v * 1000) / 1000;
+    const round2 = (v) => Math.round(v * 100) / 100;
 
     let skeletons = [];
     if (results && results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
@@ -596,7 +604,7 @@ function onHandsResults(results) {
             const landmarks = results.multiHandLandmarks[i] || [];
             const handedness = (results.multiHandedness && results.multiHandedness[i] && results.multiHandedness[i].label) || null;
             skeletons.push({
-                landmarks: landmarks.map(p => ({ x: round3(p.x), y: round3(p.y), z: round3(p.z) })),
+                landmarks: landmarks.map(p => ({ x: round2(p.x), y: round2(p.y), z: round2(p.z) })),
                 handedness,
                 ts: now
             });
@@ -606,9 +614,26 @@ function onHandsResults(results) {
     // Backward compatibility: also include a single skeleton field
     const singleSkeleton = skeletons[0] || { clear: true, ts: now };
 
+    // Lightweight change detection: only send if significant movement or periodic refresh (every 300ms)
+    const sig = (() => {
+        if (!singleSkeleton || !singleSkeleton.landmarks) return 'none';
+        const idx = [0, 5, 9, 13, 17];
+        return idx.map(i => {
+            const p = singleSkeleton.landmarks[i] || { x: 0, y: 0 };
+            return `${p.x.toFixed(2)},${p.y.toFixed(2)}`;
+        }).join('|');
+    })();
+    const changed = sig !== lastSkeletonSignature;
+    const stale = now - lastSkeletonChangeAt > 300;
+    if (changed) lastSkeletonChangeAt = now;
+    if (!changed && !stale) {
+        return;
+    }
+
     if (socket && roomId) {
         socket.emit('hand-skeleton', { roomId, skeletons, skeleton: singleSkeleton });
         lastSkeletonSentAt = now;
+        lastSkeletonSignature = sig;
     }
 }
 
