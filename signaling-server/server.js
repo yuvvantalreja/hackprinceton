@@ -262,15 +262,18 @@ io.on('connection', (socket) => {
   });
 
   // Hand skeleton streaming (expert -> clinician)
-  socket.on('hand-skeleton', ({ roomId, skeleton }) => {
-    // skeleton: { landmarks: [{x,y,z}...], handedness?: 'Left'|'Right', clear?: boolean, ts?: number }
+  socket.on('hand-skeleton', ({ roomId, skeleton, skeletons }) => {
+    // skeleton: single-hand payload (backward compatible)
+    // skeletons: optional array of multiple hands [{ landmarks, handedness?, ts? }, ...]
     if (!roomId) {
       return;
     }
     // Store latest for polling access
     try {
+      const multi = Array.isArray(skeletons) ? skeletons : (skeleton ? [skeleton] : []);
       lastSkeletonByRoom.set(roomId, {
-        skeleton,
+        skeleton,      // keep single for backward compatibility
+        skeletons: multi,
         updatedAt: Date.now(),
         senderId: socket.id,
       });
@@ -280,6 +283,7 @@ io.on('connection', (socket) => {
     // Broadcast to everyone else in the room
     socket.to(roomId).emit('hand-skeleton', {
       skeleton,
+      skeletons: Array.isArray(skeletons) ? skeletons : undefined,
       senderId: socket.id,
       timestamp: Date.now()
     });

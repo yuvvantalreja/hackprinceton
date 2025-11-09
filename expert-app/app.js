@@ -550,7 +550,7 @@ async function enableHandGuidance() {
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
     handsInstance.setOptions({
-        maxNumHands: 1,
+        maxNumHands: 2,
         modelComplexity: 1,
         minDetectionConfidence: 0.7,
         minTrackingConfidence: 0.5
@@ -596,23 +596,27 @@ function onHandsResults(results) {
         return;
     }
 
-    let payload;
+    const round3 = (v) => Math.round(v * 1000) / 1000;
+
+    let skeletons = [];
     if (results && results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const landmarks = results.multiHandLandmarks[0] || [];
-        const handedness = (results.multiHandedness && results.multiHandedness[0] && results.multiHandedness[0].label) || null;
-        const round3 = (v) => Math.round(v * 1000) / 1000;
-        payload = {
-            landmarks: landmarks.map(p => ({ x: round3(p.x), y: round3(p.y), z: round3(p.z) })),
-            handedness,
-            ts: now
-        };
-    } else {
-        // No hand detected
-        payload = { clear: true, ts: now };
+        const handsCount = results.multiHandLandmarks.length;
+        for (let i = 0; i < handsCount; i++) {
+            const landmarks = results.multiHandLandmarks[i] || [];
+            const handedness = (results.multiHandedness && results.multiHandedness[i] && results.multiHandedness[i].label) || null;
+            skeletons.push({
+                landmarks: landmarks.map(p => ({ x: round3(p.x), y: round3(p.y), z: round3(p.z) })),
+                handedness,
+                ts: now
+            });
+        }
     }
 
+    // Backward compatibility: also include a single skeleton field
+    const singleSkeleton = skeletons[0] || { clear: true, ts: now };
+
     if (socket && roomId) {
-        socket.emit('hand-skeleton', { roomId, skeleton: payload });
+        socket.emit('hand-skeleton', { roomId, skeletons, skeleton: singleSkeleton });
         lastSkeletonSentAt = now;
     }
 }

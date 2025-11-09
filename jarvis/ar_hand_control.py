@@ -72,10 +72,13 @@ class HandGestureDetector:
         self.room_id = os.environ.get("ROOM_ID", "demo")
         self.session = requests.Session()
         self.latest_skeleton = None
+        self.latest_skeletons = []  # list of skeleton dicts
         self.latest_skeleton_ms = 0
         self._skel_lock = threading.Lock()
         self._sio = None
         self._sio_thread = None
+        # The AR view is mirrored (frame flipped horizontally). Mirror incoming remote X to match.
+        self.mirror_coordinates = True
         # WebRTC state
         self._rtc_loop = None
         self._pcs = {}  # peerId -> RTCPeerConnection
@@ -107,13 +110,24 @@ class HandGestureDetector:
         def on_hand_skeleton(msg):
             try:
                 with self._skel_lock:
-                    # msg: { skeleton: {...}, senderId, timestamp }
-                    self.latest_skeleton = msg.get('skeleton')
+                    # msg: { skeleton?: {...}, skeletons?: [...], senderId, timestamp }
+                    skel_single = msg.get('skeleton')
+                    skel_list = msg.get('skeletons')
+                    if isinstance(skel_list, list):
+                        self.latest_skeletons = skel_list
+                    elif skel_single is not None:
+                        self.latest_skeletons = [skel_single]
+                    else:
+                        self.latest_skeletons = []
+                    self.latest_skeleton = skel_single  # backward compatible
                     self.latest_skeleton_ms = int(time.time() * 1000)
-                # Print only occasionally to avoid spam
-                if self.latest_skeleton and self.latest_skeleton.get('landmarks'):
-                    lm_count = len(self.latest_skeleton['landmarks'])
-                    print(f"[AR] Received hand-skeleton ({lm_count} pts)")
+                 # Print only occasionally to avoid spam
+                if self.latest_skeletons:
+                    try:
+                        total = sum(len(s.get('landmarks') or []) for s in self.latest_skeletons)
+                        print(f"[AR] Received hand-skeletons (hands={len(self.latest_skeletons)}, totalPts={total})")
+                    except Exception:
+                        pass
             except Exception:
                 print("[AR] Error handling hand-skeleton message")
         @self._sio.event
@@ -232,9 +246,9 @@ class HandGestureDetector:
         if self.use_socketio:
             try:
                 with self._skel_lock:
-                    skel = self.latest_skeleton
+                    skel_list = list(self.latest_skeletons) if self.latest_skeletons else []
                     last_ms = self.latest_skeleton_ms
-                if not skel:
+                if not skel_list:
                     # Timed fallback to Flask if configured and stale
                     if self.use_remote:
                         now_ms = int(time.time() * 1000)
@@ -246,17 +260,26 @@ class HandGestureDetector:
                                 if resp.ok:
                                     payload = resp.json() or {}
                                     data = payload.get("data") or {}
-                                    skel = data.get("skeleton") or {}
+                                    if isinstance(data, dict):
+                                        if isinstance(data.get("skeletons"), list):
+                                            skel_list = data.get("skeletons") or []
+                                        else:
+                                            skel_single = data.get("skeleton") or {}
+                                            if skel_single:
+                                                skel_list = [skel_single]
                             except Exception:
                                 pass
-                if not skel:
+                if not skel_list:
                     return []
-                landmarks = skel.get("landmarks") or []
-                if not landmarks:
-                    return []
-                hand_info = self._extract_hand_info_from_normalized(landmarks, frame.shape, skel.get("handedness"))
-                hand_info['hand_idx'] = 0
-                return [hand_info]
+                hands_info = []
+                for idx, skel in enumerate(skel_list):
+                    landmarks = skel.get("landmarks") or []
+                    if not landmarks:
+                        continue
+                    hand_info = self._extract_hand_info_from_normalized(landmarks, frame.shape, skel.get("handedness"))
+                    hand_info['hand_idx'] = idx
+                    hands_info.append(hand_info)
+                return hands_info
             except Exception:
                 return []
         elif self.use_remote:
@@ -372,6 +395,12 @@ class HandGestureDetector:
             if i < 0 or i >= len(lm_list): 
                 return {'x': 0.0, 'y': 0.0, 'z': 0.0}
             return lm_list[i]
+        def to_px_x(x_norm: float) -> int:
+            # Mirror X if our rendered frame is mirrored
+            x_use = (1.0 - x_norm) if getattr(self, 'mirror_coordinates', False) else x_norm
+            return int(x_use * w)
+        def to_px_y(y_norm: float) -> int:
+            return int(y_norm * h)
         thumb_tip = get(4)
         index_tip = get(8)
         middle_tip = get(12)
@@ -379,24 +408,29 @@ class HandGestureDetector:
         pinky_tip = get(20)
         wrist = get(0)
         index_mcp = get(5)
-        # Pixel coords
-        thumb_pos = (int(thumb_tip['x'] * w), int(thumb_tip['y'] * h))
-        index_pos = (int(index_tip['x'] * w), int(index_tip['y'] * h))
-        middle_pos = (int(middle_tip['x'] * w), int(middle_tip['y'] * h))
-        wrist_pos = (int(wrist['x'] * w), int(wrist['y'] * h))
-        palm_x = int((wrist['x'] + index_mcp['x']) * w / 2)
+        # Pixel coords (with optional mirroring for X)
+        thumb_pos = (to_px_x(thumb_tip['x']), to_px_y(thumb_tip['y']))
+        index_pos = (to_px_x(index_tip['x']), to_px_y(index_tip['y']))
+        middle_pos = (to_px_x(middle_tip['x']), to_px_y(middle_tip['y']))
+        wrist_pos = (to_px_x(wrist['x']), to_px_y(wrist['y']))
+        palm_x = int(((1.0 - wrist['x'] if getattr(self, 'mirror_coordinates', False) else wrist['x']) + 
+                      (1.0 - index_mcp['x'] if getattr(self, 'mirror_coordinates', False) else index_mcp['x'])) * w / 2)
         palm_y = int((wrist['y'] + index_mcp['y']) * h / 2)
         palm_center = (palm_x, palm_y)
         pinch_distance = math.sqrt((thumb_pos[0] - index_pos[0]) ** 2 + (thumb_pos[1] - index_pos[1]) ** 2)
         pinch_center = ((thumb_pos[0] + index_pos[0]) // 2, (thumb_pos[1] + index_pos[1]) // 2)
         # Bent heuristics
-        thumb_bent = thumb_tip['x'] < get(3)['x']
+        # Note: for bent checks, compare in normalized, but mirror X consistently if enabled
+        thumb_bent = ((1.0 - thumb_tip['x']) if getattr(self, 'mirror_coordinates', False) else thumb_tip['x']) < \
+                     ((1.0 - get(3)['x']) if getattr(self, 'mirror_coordinates', False) else get(3)['x'])
         index_bent = index_tip['y'] > get(6)['y']
         # Pinch heuristic
         is_pinching = (pinch_distance < 60 and pinch_distance > 10 and (thumb_bent or index_bent or pinch_distance < 35))
         if pinch_distance < 25:
             is_pinching = True
         gestures = self._detect_gestures_from_list(lm_list)
+        # Full pixel landmark list for drawing overlay
+        pixel_landmarks = [(to_px_x(get(i)['x']), to_px_y(get(i)['y'])) for i in range(21)]
         info = {
             'thumb_pos': thumb_pos,
             'index_pos': index_pos,
@@ -408,7 +442,8 @@ class HandGestureDetector:
             'pinch_distance': pinch_distance,
             'is_pinching': is_pinching,
             'thumb_bent': thumb_bent,
-            'index_bent': index_bent
+            'index_bent': index_bent,
+            'pixel_landmarks': pixel_landmarks
         }
         # Handedness mapping
         if handedness:
@@ -491,11 +526,31 @@ class HandGestureDetector:
         return gestures
     
     def draw_landmarks(self, frame: np.ndarray, hands_info: List[dict]) -> np.ndarray:
-        """Draw hand landmarks on frame"""
+        """Draw hand landmarks on frame for both local (MediaPipe) and remote (normalized) inputs"""
         for hand_info in hands_info:
-            if 'landmarks' in hand_info:
-                self.mp_drawing.draw_landmarks(
-                    frame, hand_info['landmarks'], self.mp_hands.HAND_CONNECTIONS)
+            # Local MediaPipe landmarks available
+            if 'landmarks' in hand_info and hasattr(self, 'mp_drawing') and hasattr(self, 'mp_hands'):
+                try:
+                    self.mp_drawing.draw_landmarks(
+                        frame, hand_info['landmarks'], self.mp_hands.HAND_CONNECTIONS)
+                    continue
+                except Exception:
+                    pass
+            # Remote normalized landmarks drawing
+            if 'pixel_landmarks' in hand_info:
+                pts = hand_info['pixel_landmarks']
+                # Draw connections if available from mp
+                try:
+                    connections = getattr(mp.solutions.hands, 'HAND_CONNECTIONS', None)
+                except Exception:
+                    connections = None
+                if connections:
+                    for a, b in connections:
+                        if 0 <= a < len(pts) and 0 <= b < len(pts):
+                            cv2.line(frame, pts[a], pts[b], (0, 255, 255), 2)
+                # Draw joints
+                for (x, y) in pts:
+                    cv2.circle(frame, (x, y), 3, (0, 140, 255), -1)
         return frame
 
 
