@@ -598,18 +598,100 @@ function drawHandSkeleton(landmarks) {
     });
 }
 
+function drawMultipleHands(hands) {
+    ensureHandCanvas();
+    if (!handCtx) return;
+    clearHandOverlay();
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = annotationsOverlay.getBoundingClientRect();
+    const width = handCanvas.width;
+    const height = handCanvas.height;
+
+    // Colors for different hands (for visual distinction)
+    const handColors = [
+        'rgba(0, 200, 255, 0.9)',   // Cyan for first hand
+        'rgba(255, 100, 150, 0.9)'  // Pink for second hand
+    ];
+
+    // Draw each hand
+    hands.forEach((hand, handIdx) => {
+        const landmarks = hand.landmarks || [];
+        if (!landmarks.length) return;
+
+        const color = handColors[handIdx % handColors.length];
+
+        // Draw connections
+        handCtx.lineCap = 'round';
+        handCtx.lineJoin = 'round';
+        handCtx.strokeStyle = color;
+        handCtx.lineWidth = Math.max(2, Math.min(width, height) * 0.006);
+
+        HAND_CONNECTIONS.forEach(([a, b]) => {
+            const pa = landmarks[a];
+            const pb = landmarks[b];
+            if (!pa || !pb) return;
+            const ax = pa.x * width;
+            const ay = pa.y * height;
+            const bx = pb.x * width;
+            const by = pb.y * height;
+            handCtx.beginPath();
+            handCtx.moveTo(ax, ay);
+            handCtx.lineTo(bx, by);
+            handCtx.stroke();
+        });
+
+        // Draw joints
+        handCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        const r = Math.max(2, Math.min(width, height) * 0.004);
+        landmarks.forEach((p) => {
+            const x = p.x * width;
+            const y = p.y * height;
+            handCtx.beginPath();
+            handCtx.arc(x, y, r, 0, Math.PI * 2);
+            handCtx.fill();
+        });
+
+        // Draw hand label (Left/Right)
+        if (hand.handedness) {
+            const wrist = landmarks[0]; // Wrist is landmark 0
+            if (wrist) {
+                const labelX = wrist.x * width;
+                const labelY = wrist.y * height - 20;
+                handCtx.fillStyle = color;
+                handCtx.font = 'bold 16px Arial';
+                handCtx.textAlign = 'center';
+                handCtx.fillText(hand.handedness, labelX, labelY);
+            }
+        }
+    });
+}
+
 function handleHandSkeleton({ skeleton }) {
     if (!skeleton || skeleton.clear) {
         clearHandOverlay();
         return;
     }
-    const landmarks = skeleton.landmarks || [];
-    if (!landmarks.length) {
+
+    // Support both old format (single hand) and new format (multiple hands)
+    if (skeleton.hands && Array.isArray(skeleton.hands)) {
+        // New format: multiple hands
+        if (skeleton.hands.length === 0) {
+            clearHandOverlay();
+            return;
+        }
+        drawMultipleHands(skeleton.hands);
+    } else if (skeleton.landmarks) {
+        // Old format: single hand (backward compatibility)
+        const landmarks = skeleton.landmarks || [];
+        if (!landmarks.length) {
+            clearHandOverlay();
+            return;
+        }
+        drawHandSkeleton(landmarks);
+    } else {
         clearHandOverlay();
-        return;
     }
-    // landmarks are normalized [0..1]; draw directly
-    drawHandSkeleton(landmarks);
 }
 
 // Keep overlay in sync with video size
