@@ -3,99 +3,177 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Expert App - Remote Consultation</title>
+    <title>Expert Console - Remote Consultation Platform</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🩺 Remote Expert</h1>
-            <div class="status-indicator" id="connectionStatus">
-                <span class="dot offline"></span>
-                <span id="statusText">Disconnected</span>
+    <div class="app">
+        <header class="header">
+            <div class="header-content">
+                <div class="brand">
+                    <svg class="brand-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M20 7L12 3L4 7V17L12 21L20 17V7Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M12 3V21M20 7L12 11M12 11L4 7M12 11V21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <h1 class="brand-title">Expert Console</h1>
+                </div>
+                <div class="header-status">
+                    <div class="status-indicator" id="connectionStatus">
+                        <span class="status-dot offline"></span>
+                        <span class="status-text" id="statusText">Disconnected</span>
+                    </div>
+                </div>
             </div>
         </header>
 
-        <div class="setup-panel" id="setupPanel">
-            <h2>Join Consultation</h2>
-            <div class="form-group">
-                <label for="userName">Your Name:</label>
-                <input type="text" id="userName" placeholder="Dr. Johnson" value="Dr. Expert">
-            </div>
-            <div class="form-group">
-                <label for="roomId">Room ID:</label>
-                <input type="text" id="roomId" placeholder="room-123" value="room-123">
-            </div>
-            <button id="joinBtn" class="btn btn-primary">Join Session</button>
-        </div>
-
-        <div class="consultation-container" id="consultationContainer" style="display: none;">
-            <div class="video-section">
-                <div class="video-wrapper">
-                    <video id="remoteVideo" autoplay playsinline></video>
-                    <div class="video-label">Clinician's Camera</div>
-                    <canvas id="annotationCanvas"></canvas>
-                    <div id="videoStatus" class="video-status">Waiting for video stream...</div>
-                </div>
-                
-                <div class="annotation-toolbar">
-                    <h3>🎨 Annotation Tools</h3>
-                    <div class="tool-buttons">
-                        <button id="arrowBtn" class="tool-btn active" data-tool="arrow">
-                            👇 Arrow
-                        </button>
-                        <button id="textBtn" class="tool-btn" data-tool="text">
-                            💬 Text
-                        </button>
-                        <button id="clearBtn" class="tool-btn tool-btn-clear">
-                            🗑️ Clear All
+        <main class="main-content">
+            <div class="setup-panel" id="setupPanel">
+                <div class="setup-card">
+                    <div class="setup-header">
+                        <h2 class="setup-title">Join Consultation Session</h2>
+                        <p class="setup-description">Enter your credentials to begin remote consultation</p>
+                    </div>
+                    <div class="setup-form">
+                        <div class="form-field">
+                            <label class="form-label" for="userName">Display Name</label>
+                            <input type="text" id="userName" class="form-input" placeholder="Enter your name" value="Dr. Expert">
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label" for="roomId">Session ID</label>
+                            <input type="text" id="roomId" class="form-input" placeholder="Enter session ID" value="room-123">
+                        </div>
+                        <button id="joinBtn" class="btn btn-primary btn-large">
+                            <span>Join Session</span>
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M6 3L11 8L6 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
                         </button>
                     </div>
-                    <div id="textInputPanel" class="text-input-panel" style="display: none;">
-                        <input type="text" id="annotationText" placeholder="Enter text annotation..." maxlength="50">
-                        <button id="addTextBtn" class="btn btn-small">Add</button>
-                    </div>
-                    <p class="tool-hint">Click on the video to place annotations</p>
                 </div>
             </div>
 
-            <div class="sidebar">
-                <div class="info-card">
-                    <h3>Session Info</h3>
-                    <div class="info-item">
-                        <strong>Room ID:</strong>
-                        <span id="currentRoomId"></span>
-                    </div>
-                    <div class="info-item">
-                        <strong>Stream Status:</strong>
-                        <span id="streamStatus" class="badge badge-warning">Connecting...</span>
-                    </div>
-                </div>
+            <div class="consultation-view" id="consultationContainer" style="display: none;">
+                <div class="workspace">
+                    <div class="video-panel">
+                        <div class="video-container">
+                            <video id="remoteVideo" autoplay playsinline></video>
+                            <div class="video-overlay-label">Live Feed</div>
+                            <canvas id="annotationCanvas"></canvas>
+                            <div id="videoStatus" class="video-placeholder">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+                                    <path d="M22 9L17 12L22 15V9Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                </svg>
+                                <p>Waiting for video stream</p>
+                            </div>
+                        </div>
+                        
+                        <div class="toolbar">
+                            <div class="toolbar-section">
+                                <span class="toolbar-label">Annotation Tools</span>
+                                <div class="tool-group">
+                                    <button id="arrowBtn" class="tool-button active" data-tool="arrow" title="Pointer">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M7 7L17 17M17 17H9M17 17V9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        </svg>
+                                        <span>Pointer</span>
+                                    </button>
+                                    <button id="textBtn" class="tool-button" data-tool="text" title="Text Label">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M4 7V4H20V7M9 20H15M12 4V20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        </svg>
+                                        <span>Text</span>
+                                    </button>
+                                    <button id="clearBtn" class="tool-button tool-button-secondary" title="Clear All">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        </svg>
+                                        <span>Clear</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
 
-                <div class="info-card">
-                    <h3>Connected Users</h3>
-                    <div id="usersList" class="users-list">
-                        <p class="no-users">Loading...</p>
+                        <div id="textInputPanel" class="text-annotation-panel" style="display: none;">
+                            <input type="text" id="annotationText" class="annotation-input" placeholder="Enter annotation text" maxlength="50">
+                            <button id="addTextBtn" class="btn btn-secondary btn-small">Add Label</button>
+                        </div>
+                        
+                        <div class="annotation-hint">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                                <path d="M12 16V12M12 8H12.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            <span>Click on the video feed to place annotations</span>
+                        </div>
                     </div>
-                </div>
 
-                <div class="info-card">
-                    <h3>Controls</h3>
-                    <button id="toggleAudioBtn" class="btn btn-block">🔊 Audio On</button>
-                    <button id="leaveBtn" class="btn btn-block btn-danger">Leave Session</button>
-                </div>
+                    <aside class="sidebar">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3 class="card-title">Session Details</h3>
+                            </div>
+                            <div class="card-content">
+                                <div class="detail-row">
+                                    <span class="detail-label">Session ID</span>
+                                    <span class="detail-value" id="currentRoomId">—</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Connection Status</span>
+                                    <span id="streamStatus" class="status-badge status-connecting">Connecting</span>
+                                </div>
+                            </div>
+                        </div>
 
-                <div class="info-card tips-card">
-                    <h3>💡 Tips</h3>
-                    <ul>
-                        <li>Click to place arrow pointers</li>
-                        <li>Add text notes for clarity</li>
-                        <li>Annotations auto-clear after 5s</li>
-                        <li>Use clear all to reset</li>
-                    </ul>
+                        <div class="card">
+                            <div class="card-header">
+                                <h3 class="card-title">Active Participants</h3>
+                            </div>
+                            <div class="card-content">
+                                <div id="usersList" class="users-container">
+                                    <p class="empty-state">Loading participants...</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h3 class="card-title">Controls</h3>
+                            </div>
+                            <div class="card-content">
+                                <button id="toggleAudioBtn" class="btn btn-block btn-control">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M11 5L6 9H2V15H6L11 19V5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <path d="M15.54 8.46C16.4774 9.39764 17.0039 10.6692 17.0039 11.995C17.0039 13.3208 16.4774 14.5924 15.54 15.53" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    <span>Audio On</span>
+                                </button>
+                                <button id="leaveBtn" class="btn btn-block btn-danger">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M9 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V5C3 4.46957 3.21071 3.96086 3.58579 3.58579C3.96086 3.21071 4.46957 3 5 3H9M16 17L21 12M21 12L16 7M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    <span>Leave Session</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="card card-info">
+                            <div class="card-header">
+                                <h3 class="card-title">Guidelines</h3>
+                            </div>
+                            <div class="card-content">
+                                <ul class="info-list">
+                                    <li>Use pointer tool to indicate areas of interest</li>
+                                    <li>Add text labels for detailed instructions</li>
+                                    <li>Annotations automatically clear after 5 seconds</li>
+                                    <li>Clear all annotations using the toolbar</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </aside>
                 </div>
             </div>
-        </div>
+        </main>
     </div>
 
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>

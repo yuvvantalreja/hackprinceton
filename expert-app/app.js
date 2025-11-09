@@ -23,14 +23,14 @@ if (window.location.hostname !== 'localhost' && window.location.hostname !== '12
 // Add server info and change button
 window.addEventListener('DOMContentLoaded', () => {
     const serverInfo = document.createElement('div');
-    serverInfo.style.cssText = 'position: fixed; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; z-index: 1000;';
+    serverInfo.style.cssText = 'position: fixed; bottom: 16px; left: 16px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); color: white; padding: 12px 16px; border-radius: 10px; font-size: 12px; z-index: 1000; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;';
     
     const isAutoDetected = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     
     if (isAutoDetected) {
-        serverInfo.innerHTML = `🌐 Server: ${SIGNALING_SERVER} (auto-detected)`;
+        serverInfo.innerHTML = `<strong>Server:</strong> ${SIGNALING_SERVER} <span style="opacity: 0.7;">(auto-detected)</span>`;
     } else {
-        serverInfo.innerHTML = `🌐 Server: ${SIGNALING_SERVER}<br><button onclick="changeServer()" style="margin-top: 5px; padding: 5px; cursor: pointer;">Change Server</button>`;
+        serverInfo.innerHTML = `<strong>Server:</strong> ${SIGNALING_SERVER}<br><button onclick="changeServer()" style="margin-top: 8px; padding: 6px 12px; cursor: pointer; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px; font-size: 12px;">Change Server</button>`;
     }
     
     document.body.appendChild(serverInfo);
@@ -147,7 +147,7 @@ async function joinSession() {
 
     // Update UI
     setupPanel.style.display = 'none';
-    consultationContainer.style.display = 'grid';
+    consultationContainer.style.display = 'block';
     currentRoomId.textContent = roomId;
 
     console.log('Joined session');
@@ -189,7 +189,10 @@ function toggleAudio() {
         const audioTrack = remoteStream.getAudioTracks()[0];
         if (audioTrack) {
             audioTrack.enabled = !audioTrack.enabled;
-            toggleAudioBtn.textContent = audioTrack.enabled ? '🔊 Audio On' : '🔇 Audio Off';
+            const textSpan = toggleAudioBtn.querySelector('span');
+            if (textSpan) {
+                textSpan.textContent = audioTrack.enabled ? 'Audio On' : 'Audio Off';
+            }
         }
     }
 }
@@ -226,10 +229,16 @@ function handleUserLeft({ userId, role, userName }) {
     console.log(`User left: ${userName} (${role})`);
     
     if (role === 'clinician') {
-        videoStatus.style.display = 'block';
-        videoStatus.textContent = 'Clinician disconnected';
+        videoStatus.style.display = 'flex';
+        videoStatus.innerHTML = `
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+                <path d="M22 9L17 12L22 15V9Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            </svg>
+            <p>Clinician disconnected</p>
+        `;
         streamStatus.textContent = 'Disconnected';
-        streamStatus.className = 'badge badge-warning';
+        streamStatus.className = 'status-badge status-disconnected';
     }
     
     updateUsersList();
@@ -289,7 +298,7 @@ function createPeerConnection() {
         
         videoStatus.style.display = 'none';
         streamStatus.textContent = 'Connected';
-        streamStatus.className = 'badge badge-success';
+        streamStatus.className = 'status-badge status-connected';
         
         // Resize canvas to match video
         resizeCanvas();
@@ -311,12 +320,18 @@ function createPeerConnection() {
         
         if (pc.connectionState === 'connected') {
             streamStatus.textContent = 'Connected';
-            streamStatus.className = 'badge badge-success';
+            streamStatus.className = 'status-badge status-connected';
         } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
             streamStatus.textContent = 'Disconnected';
-            streamStatus.className = 'badge badge-warning';
-            videoStatus.style.display = 'block';
-            videoStatus.textContent = 'Connection lost';
+            streamStatus.className = 'status-badge status-disconnected';
+            videoStatus.style.display = 'flex';
+            videoStatus.innerHTML = `
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+                    <path d="M22 9L17 12L22 15V9Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                </svg>
+                <p>Connection lost</p>
+            `;
         }
     };
 
@@ -334,10 +349,10 @@ function updateUsersList() {
     // This would be enhanced with actual user tracking
     usersList.innerHTML = `
         <div class="user-item">
-            <span class="user-icon">🏥</span>
-            <div>
-                <strong>Clinician</strong>
-                <div style="font-size: 12px; color: #666;">Online</div>
+            <div class="user-avatar">C</div>
+            <div class="user-info">
+                <div class="user-name">Clinician</div>
+                <div class="user-status">Online</div>
             </div>
         </div>
     `;
@@ -420,9 +435,9 @@ function displayAnnotation(annotation) {
     annotationDiv.style.position = 'absolute';
 
     if (annotation.type === 'arrow') {
-        annotationDiv.innerHTML = '<div class="annotation-arrow">👇</div>';
+        annotationDiv.innerHTML = '<div class="annotation-arrow"></div>';
     } else if (annotation.type === 'text') {
-        annotationDiv.innerHTML = `<div class="annotation-text-display">${annotation.text}</div>`;
+        annotationDiv.innerHTML = `<div class="annotation-text-display">${escapeHtml(annotation.text)}</div>`;
     }
 
     // Add to canvas parent (the video wrapper)
@@ -470,6 +485,18 @@ function updateConnectionStatus(connected) {
     }
 }
 
+// Helper function to escape HTML
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+}
+
 // Resize canvas when video loads
 remoteVideo.addEventListener('loadedmetadata', resizeCanvas);
 window.addEventListener('resize', resizeCanvas);
@@ -480,14 +507,21 @@ window.addEventListener('resize', resizeCanvas);
 
 function createHandGuidanceUI() {
     const ui = document.createElement('div');
-    ui.style.cssText = 'position: fixed; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; z-index: 1000; display: flex; gap: 8px; align-items: center;';
+    ui.style.cssText = 'position: fixed; bottom: 16px; right: 16px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); color: white; padding: 12px 16px; border-radius: 10px; font-size: 12px; z-index: 1000; display: flex; gap: 12px; align-items: center; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;';
     ui.id = 'handGuidancePanel';
     const label = document.createElement('span');
-    label.textContent = '✋ Hand Guidance';
+    label.textContent = 'Hand Guidance';
+    label.style.fontWeight = '500';
     const btn = document.createElement('button');
     btn.id = 'toggleHandGuidanceBtn';
     btn.textContent = 'Enable';
-    btn.style.cssText = 'padding: 5px 8px; cursor: pointer;';
+    btn.style.cssText = 'padding: 6px 12px; cursor: pointer; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px; font-size: 12px; font-weight: 500; transition: all 150ms;';
+    btn.addEventListener('mouseover', () => {
+        btn.style.background = 'rgba(255,255,255,0.3)';
+    });
+    btn.addEventListener('mouseout', () => {
+        btn.style.background = 'rgba(255,255,255,0.2)';
+    });
     btn.addEventListener('click', async () => {
         if (!roomId) {
             alert('Join a room first to use Hand Guidance.');

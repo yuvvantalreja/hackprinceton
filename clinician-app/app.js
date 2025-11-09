@@ -23,14 +23,14 @@ if (window.location.hostname !== 'localhost' && window.location.hostname !== '12
 // Add server info and change button
 window.addEventListener('DOMContentLoaded', () => {
     const serverInfo = document.createElement('div');
-    serverInfo.style.cssText = 'position: fixed; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; z-index: 1000;';
+    serverInfo.style.cssText = 'position: fixed; bottom: 16px; left: 16px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); color: white; padding: 12px 16px; border-radius: 10px; font-size: 12px; z-index: 1000; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;';
     
     const isAutoDetected = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     
     if (isAutoDetected) {
-        serverInfo.innerHTML = `🌐 Server: ${SIGNALING_SERVER} (auto-detected)`;
+        serverInfo.innerHTML = `<strong>Server:</strong> ${SIGNALING_SERVER} <span style="opacity: 0.7;">(auto-detected)</span>`;
     } else {
-        serverInfo.innerHTML = `🌐 Server: ${SIGNALING_SERVER}<br><button onclick="changeServer()" style="margin-top: 5px; padding: 5px; cursor: pointer;">Change Server</button>`;
+        serverInfo.innerHTML = `<strong>Server:</strong> ${SIGNALING_SERVER}<br><button onclick="changeServer()" style="margin-top: 8px; padding: 6px 12px; cursor: pointer; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px; font-size: 12px;">Change Server</button>`;
     }
     
     document.body.appendChild(serverInfo);
@@ -129,12 +129,18 @@ async function startStreaming() {
         currentRoomId.textContent = roomId;
         localVideo.style.display = 'block';
         const vs = document.getElementById('videoStatus');
-        if (vs) {
-            vs.style.display = 'block';
-            vs.textContent = 'Waiting for AR feed...';
-        }
-        streamStatus.textContent = 'Connecting...';
-        streamStatus.className = 'badge badge-warning';
+            if (vs) {
+                vs.style.display = 'flex';
+                vs.innerHTML = `
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+                        <path d="M22 9L17 12L22 15V9Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                    </svg>
+                    <p>Waiting for AR feed</p>
+                `;
+            }
+        streamStatus.textContent = 'Connecting';
+        streamStatus.className = 'status-badge status-connecting';
         return;
     }
 
@@ -325,7 +331,10 @@ function toggleVideo() {
     if (localStream) {
         const videoTrack = localStream.getVideoTracks()[0];
         videoTrack.enabled = !videoTrack.enabled;
-        toggleVideoBtn.textContent = videoTrack.enabled ? '📹 Video On' : '📹 Video Off';
+        const textSpan = toggleVideoBtn.querySelector('span');
+        if (textSpan) {
+            textSpan.textContent = videoTrack.enabled ? 'Video On' : 'Video Off';
+        }
     }
 }
 
@@ -334,7 +343,10 @@ function toggleAudio() {
     if (localStream) {
         const audioTrack = localStream.getAudioTracks()[0];
         audioTrack.enabled = !audioTrack.enabled;
-        toggleAudioBtn.textContent = audioTrack.enabled ? '🎤 Audio On' : '🎤 Audio Off';
+        const textSpan = toggleAudioBtn.querySelector('span');
+        if (textSpan) {
+            textSpan.textContent = audioTrack.enabled ? 'Audio On' : 'Audio Off';
+        }
     }
 }
 
@@ -480,7 +492,7 @@ function createPeerConnection(peerId) {
                 const vs = document.getElementById('videoStatus');
                 if (vs) vs.style.display = 'none';
                 streamStatus.textContent = 'Connected';
-                streamStatus.className = 'badge badge-success';
+                streamStatus.className = 'status-badge status-connected';
             }
         } catch (e) {
             console.warn('ontrack handler error:', e);
@@ -507,19 +519,19 @@ function updateExpertsList() {
     const expertCount = peerConnections.size;
     
     if (expertCount === 0) {
-        expertsList.innerHTML = '<p class="no-experts">Waiting for experts to join...</p>';
+        expertsList.innerHTML = '<p class="empty-state">Waiting for experts to join...</p>';
     } else {
         expertsList.innerHTML = '';
         peerConnections.forEach((pc, expertId) => {
             const expertItem = document.createElement('div');
             expertItem.className = 'expert-item';
+            const initial = expertId.substring(0, 1).toUpperCase();
+            const statusText = pc.connectionState === 'connected' ? 'Connected' : 'Connecting...';
             expertItem.innerHTML = `
-                <span class="icon">👨‍⚕️</span>
-                <div>
-                    <strong>Expert ${expertId.substring(0, 8)}</strong>
-                    <div style="font-size: 12px; color: #666;">
-                        ${pc.connectionState === 'connected' ? '✅ Connected' : '🔄 Connecting...'}
-                    </div>
+                <div class="expert-avatar">${initial}</div>
+                <div class="expert-info">
+                    <div class="expert-name">Expert ${expertId.substring(0, 8)}</div>
+                    <div class="expert-status">${statusText}</div>
                 </div>
             `;
             expertsList.appendChild(expertItem);
@@ -541,9 +553,9 @@ function displayAnnotation(annotation) {
     annotationElement.style.top = annotation.y + '%';
 
     if (annotation.type === 'arrow') {
-        annotationElement.innerHTML = `<div class="annotation-arrow">👇</div>`;
+        annotationElement.innerHTML = `<div class="annotation-arrow"></div>`;
     } else if (annotation.type === 'text') {
-        annotationElement.innerHTML = `<div class="annotation-text">${annotation.text}</div>`;
+        annotationElement.innerHTML = `<div class="annotation-text">${escapeHtml(annotation.text)}</div>`;
     }
 
     annotationsOverlay.appendChild(annotationElement);
@@ -552,6 +564,18 @@ function displayAnnotation(annotation) {
     setTimeout(() => {
         annotationElement.remove();
     }, 5000);
+}
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
 }
 
 // Handle clear annotations
