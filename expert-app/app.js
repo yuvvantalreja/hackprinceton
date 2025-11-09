@@ -145,15 +145,14 @@ async function joinSession() {
         userName
     });
 
-    // Update UI
+
     setupPanel.style.display = 'none';
     consultationContainer.style.display = 'block';
     currentRoomId.textContent = roomId;
 
     console.log('Joined session');
 
-    // Optionally auto-enable Hand Guidance once joined (kept off by default)
-    // enableHandGuidance().catch(() => {});
+    enableHandGuidance().catch(() => {});
 }
 
 // Leave session
@@ -512,35 +511,7 @@ function createHandGuidanceUI() {
     const label = document.createElement('span');
     label.textContent = 'Hand Guidance';
     label.style.fontWeight = '500';
-    const btn = document.createElement('button');
-    btn.id = 'toggleHandGuidanceBtn';
-    btn.textContent = 'Enable';
-    btn.style.cssText = 'padding: 6px 12px; cursor: pointer; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px; font-size: 12px; font-weight: 500; transition: all 150ms;';
-    btn.addEventListener('mouseover', () => {
-        btn.style.background = 'rgba(255,255,255,0.3)';
-    });
-    btn.addEventListener('mouseout', () => {
-        btn.style.background = 'rgba(255,255,255,0.2)';
-    });
-    btn.addEventListener('click', async () => {
-        if (!roomId) {
-            alert('Join a room first to use Hand Guidance.');
-            return;
-        }
-        if (handGuidanceEnabled) {
-            disableHandGuidance();
-        } else {
-            try {
-                await enableHandGuidance();
-            } catch (e) {
-                console.error('Failed to enable hand guidance:', e);
-                alert('Failed to enable Hand Guidance. Please allow camera permission and try again.');
-            }
-        }
-        btn.textContent = handGuidanceEnabled ? 'Disable' : 'Enable';
-    });
     ui.appendChild(label);
-    ui.appendChild(btn);
     document.body.appendChild(ui);
 }
 
