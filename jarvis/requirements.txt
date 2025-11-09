@@ -3,3 +3,5 @@ mediapipe>=0.8.0
 numpy>=1.19.0
 Flask>=3.0.0
 requests>=2.32.0
+python-socketio[client]>=5.11.0
+websocket-client>=1.8.0

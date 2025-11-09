@@ -100,7 +100,7 @@ let handsInstance = null;
 let handCamera = null;
 let handVideoEl = null;
 let lastSkeletonSentAt = 0;
-const HAND_SKELETON_FPS = 15; // throttle to ~15 fps
+const HAND_SKELETON_FPS = 30; // throttle to ~30 fps
 
 // Initialize Socket.IO connection
 function initializeSocket() {
@@ -578,8 +578,9 @@ function onHandsResults(results) {
     if (results && results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
         const landmarks = results.multiHandLandmarks[0] || [];
         const handedness = (results.multiHandedness && results.multiHandedness[0] && results.multiHandedness[0].label) || null;
+        const round3 = (v) => Math.round(v * 1000) / 1000;
         payload = {
-            landmarks: landmarks.map(p => ({ x: p.x, y: p.y, z: p.z })),
+            landmarks: landmarks.map(p => ({ x: round3(p.x), y: round3(p.y), z: round3(p.z) })),
             handedness,
             ts: now
         };

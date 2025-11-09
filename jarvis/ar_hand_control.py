@@ -6,6 +6,8 @@ from typing import List, Tuple, Optional
 import time
 import os
 import requests
+import threading
+import socketio
 from renderer_3d import Renderer3D
 from virtual_object_3d import VirtualObject3D
 
@@ -60,9 +62,19 @@ class HandGestureDetector:
     def __init__(self):
         # Config to use remote landmarks (from Flask) instead of local MediaPipe
         self.use_remote = os.environ.get("USE_REMOTE_HANDS", "1") not in ("0", "false", "False")
+        # Optional: use Socket.IO direct stream from signaling server
+        self.use_socketio = os.environ.get("USE_SOCKETIO_HANDS", "1") in ("1", "true", "True")
+        self.signaling_base = os.environ.get("SIGNALING_BASE_URL", "http://localhost:3001")
         self.flask_base = os.environ.get("FLASK_BASE_URL", "http://127.0.0.1:5001")
         self.room_id = os.environ.get("ROOM_ID", "demo")
         self.session = requests.Session()
+        self.latest_skeleton = None
+        self.latest_skeleton_ms = 0
+        self._skel_lock = threading.Lock()
+        self._sio = None
+        self._sio_thread = None
+        if self.use_socketio:
+            self._start_socketio_client()
         if not self.use_remote:
             self.mp_hands = mp.solutions.hands
             self.hands = self.mp_hands.Hands(
@@ -72,9 +84,80 @@ class HandGestureDetector:
                 min_tracking_confidence=0.5
             )
             self.mp_drawing = mp.solutions.drawing_utils
+    
+    def _start_socketio_client(self):
+        self._sio = socketio.Client(reconnection=True, logger=False, engineio_logger=False)
+        @self._sio.event
+        def connect():
+            try:
+                print(f"[AR] Socket.IO connected to {self.signaling_base}")
+                self._sio.emit('join-room', {'roomId': self.room_id, 'role': 'observer', 'userName': 'AR Python'})
+                print(f"[AR] Emitted join-room roomId={self.room_id}")
+            except Exception:
+                print("[AR] Error emitting join-room")
+        @self._sio.on('hand-skeleton')
+        def on_hand_skeleton(msg):
+            try:
+                with self._skel_lock:
+                    # msg: { skeleton: {...}, senderId, timestamp }
+                    self.latest_skeleton = msg.get('skeleton')
+                    self.latest_skeleton_ms = int(time.time() * 1000)
+                # Print only occasionally to avoid spam
+                if self.latest_skeleton and self.latest_skeleton.get('landmarks'):
+                    lm_count = len(self.latest_skeleton['landmarks'])
+                    print(f"[AR] Received hand-skeleton ({lm_count} pts)")
+            except Exception:
+                print("[AR] Error handling hand-skeleton message")
+        @self._sio.event
+        def disconnect():
+            print("[AR] Socket.IO disconnected")
+        @self._sio.event
+        def connect_error(data):
+            print(f"[AR] Socket.IO connect_error: {data}")
+        @self._sio.event
+        def reconnect_attempt(number):
+            print(f"[AR] Socket.IO reconnect attempt {number}")
+        def run():
+            try:
+                self._sio.connect(self.signaling_base, transports=['websocket', 'polling'])
+                self._sio.wait()
+            except Exception:
+                print("[AR] Socket.IO thread terminated unexpectedly")
+        self._sio_thread = threading.Thread(target=run, daemon=True)
+        self._sio_thread.start()
         
     def detect_hands(self, frame: np.ndarray) -> List[dict]:
-        if self.use_remote:
+        if self.use_socketio:
+            try:
+                with self._skel_lock:
+                    skel = self.latest_skeleton
+                    last_ms = self.latest_skeleton_ms
+                if not skel:
+                    # Timed fallback to Flask if configured and stale
+                    if self.use_remote:
+                        now_ms = int(time.time() * 1000)
+                        # If no socket events for > 800ms, try one-off Flask fetch
+                        if now_ms - last_ms > 800:
+                            try:
+                                url = f"{self.flask_base.rstrip('/')}/landmarks/latest"
+                                resp = self.session.get(url, params={"room_id": self.room_id}, timeout=0.5)
+                                if resp.ok:
+                                    payload = resp.json() or {}
+                                    data = payload.get("data") or {}
+                                    skel = data.get("skeleton") or {}
+                            except Exception:
+                                pass
+                if not skel:
+                    return []
+                landmarks = skel.get("landmarks") or []
+                if not landmarks:
+                    return []
+                hand_info = self._extract_hand_info_from_normalized(landmarks, frame.shape, skel.get("handedness"))
+                hand_info['hand_idx'] = 0
+                return [hand_info]
+            except Exception:
+                return []
+        elif self.use_remote:
             # Fetch latest skeleton from Flask and adapt to hands_info
             try:
                 url = f"{self.flask_base.rstrip('/')}/landmarks/latest"
