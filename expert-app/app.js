@@ -500,20 +500,6 @@ function escapeHtml(text) {
 remoteVideo.addEventListener('loadedmetadata', resizeCanvas);
 window.addEventListener('resize', resizeCanvas);
 
-// -----------------------------
-// Hand Guidance (MediaPipe Hands)
-// -----------------------------
-
-function createHandGuidanceUI() {
-    const ui = document.createElement('div');
-    ui.style.cssText = 'position: fixed; bottom: 16px; right: 16px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); color: white; padding: 12px 16px; border-radius: 10px; font-size: 12px; z-index: 1000; display: flex; gap: 12px; align-items: center; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;';
-    ui.id = 'handGuidancePanel';
-    const label = document.createElement('span');
-    label.textContent = 'Hand Guidance';
-    label.style.fontWeight = '500';
-    ui.appendChild(label);
-    document.body.appendChild(ui);
-}
 
 function loadScript(url) {
     return new Promise((resolve, reject) => {
