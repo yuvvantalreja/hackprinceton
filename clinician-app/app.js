@@ -556,7 +556,7 @@ function clearHandOverlay() {
     handCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
 }
 
-function drawHandSkeleton(landmarks) {
+function drawHandSkeleton(hands) {
     ensureHandCanvas();
     if (!handCtx) return;
     clearHandOverlay();
@@ -566,35 +566,53 @@ function drawHandSkeleton(landmarks) {
     const width = handCanvas.width;
     const height = handCanvas.height;
 
-    // Draw connections
-    handCtx.lineCap = 'round';
-    handCtx.lineJoin = 'round';
-    handCtx.strokeStyle = 'rgba(0, 200, 255, 0.9)';
-    handCtx.lineWidth = Math.max(2, Math.min(width, height) * 0.006);
+    // Draw each hand with different colors
+    const handColors = [
+        'rgba(0, 200, 255, 0.9)',  // Cyan for first hand
+        'rgba(255, 200, 0, 0.9)'   // Yellow for second hand
+    ];
 
-    HAND_CONNECTIONS.forEach(([a, b]) => {
-        const pa = landmarks[a];
-        const pb = landmarks[b];
-        if (!pa || !pb) return;
-        const ax = pa.x * width;
-        const ay = pa.y * height;
-        const bx = pb.x * width;
-        const by = pb.y * height;
-        handCtx.beginPath();
-        handCtx.moveTo(ax, ay);
-        handCtx.lineTo(bx, by);
-        handCtx.stroke();
-    });
+    // Ensure hands is an array
+    const handsArray = Array.isArray(hands) ? hands : (hands ? [hands] : []);
+    
+    handsArray.forEach((hand, handIndex) => {
+        if (handIndex >= 2) return; // Only draw up to 2 hands
+        
+        const landmarks = hand.landmarks || hand; // Support both new format (hand.landmarks) and old format (direct landmarks)
+        if (!landmarks || !Array.isArray(landmarks) || landmarks.length === 0) return;
+        
+        const color = handColors[handIndex] || handColors[0];
+        
+        // Draw connections
+        handCtx.lineCap = 'round';
+        handCtx.lineJoin = 'round';
+        handCtx.strokeStyle = color;
+        handCtx.lineWidth = Math.max(2, Math.min(width, height) * 0.006);
 
-    // Draw joints
-    handCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    const r = Math.max(2, Math.min(width, height) * 0.004);
-    landmarks.forEach((p) => {
-        const x = p.x * width;
-        const y = p.y * height;
-        handCtx.beginPath();
-        handCtx.arc(x, y, r, 0, Math.PI * 2);
-        handCtx.fill();
+        HAND_CONNECTIONS.forEach(([a, b]) => {
+            const pa = landmarks[a];
+            const pb = landmarks[b];
+            if (!pa || !pb) return;
+            const ax = pa.x * width;
+            const ay = pa.y * height;
+            const bx = pb.x * width;
+            const by = pb.y * height;
+            handCtx.beginPath();
+            handCtx.moveTo(ax, ay);
+            handCtx.lineTo(bx, by);
+            handCtx.stroke();
+        });
+
+        // Draw joints
+        handCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        const r = Math.max(2, Math.min(width, height) * 0.004);
+        landmarks.forEach((p) => {
+            const x = p.x * width;
+            const y = p.y * height;
+            handCtx.beginPath();
+            handCtx.arc(x, y, r, 0, Math.PI * 2);
+            handCtx.fill();
+        });
     });
 }
 
@@ -603,13 +621,24 @@ function handleHandSkeleton({ skeleton }) {
         clearHandOverlay();
         return;
     }
-    const landmarks = skeleton.landmarks || [];
-    if (!landmarks.length) {
+    
+    // Support both new format (hands array) and old format (single landmarks array)
+    let hands = null;
+    if (skeleton.hands && Array.isArray(skeleton.hands)) {
+        // New format: array of hands
+        hands = skeleton.hands;
+    } else if (skeleton.landmarks && Array.isArray(skeleton.landmarks)) {
+        // Old format: single landmarks array (backward compatibility)
+        hands = [{ landmarks: skeleton.landmarks, handedness: skeleton.handedness }];
+    }
+    
+    if (!hands || hands.length === 0) {
         clearHandOverlay();
         return;
     }
-    // landmarks are normalized [0..1]; draw directly
-    drawHandSkeleton(landmarks);
+    
+    // Draw all hands
+    drawHandSkeleton(hands);
 }
 
 // Keep overlay in sync with video size

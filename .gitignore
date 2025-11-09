@@ -6,6 +6,17 @@ ngrok-url.txt
 *.env.local
 dist/
 build/
-pycache/
 myenv/
 .venv/
+venv/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+**/venv/
+**/.venv/

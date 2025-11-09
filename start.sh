@@ -52,6 +52,19 @@ NGROK_PID=$!
 # Wait for ngrok to start and get the URL
 sleep 3
 
+# Check if ngrok authentication failed
+if grep -q "authentication failed\|ERR_NGROK_4018" ngrok.log 2>/dev/null; then
+    echo -e "${RED}❌ ngrok Authentication Failed!${NC}\n"
+    echo -e "${YELLOW}ngrok requires a verified account and authtoken.${NC}\n"
+    echo -e "${GREEN}To fix this:${NC}"
+    echo -e "  1. Sign up for free: ${BLUE}https://dashboard.ngrok.com/signup${NC}"
+    echo -e "  2. Get your authtoken: ${BLUE}https://dashboard.ngrok.com/get-started/your-authtoken${NC}"
+    echo -e "  3. Run: ${YELLOW}ngrok config add-authtoken YOUR_AUTH_TOKEN${NC}\n"
+    kill $SIGNALING_PID 2>/dev/null
+    kill $NGROK_PID 2>/dev/null
+    exit 1
+fi
+
 # Extract ngrok URL from API
 NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o '"public_url":"https://[^"]*' | grep -o 'https://[^"]*' | head -1)
 

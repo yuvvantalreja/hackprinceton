@@ -102,6 +102,24 @@ let handVideoEl = null;
 let lastSkeletonSentAt = 0;
 const HAND_SKELETON_FPS = 15; // throttle to ~15 fps
 
+// Hand overlay canvas for expert view
+let handOverlayCanvas = null;
+let handOverlayCtx = null;
+const HAND_CONNECTIONS = [
+    // Thumb
+    [0,1],[1,2],[2,3],[3,4],
+    // Index
+    [0,5],[5,6],[6,7],[7,8],
+    // Middle
+    [0,9],[9,10],[10,11],[11,12],
+    // Ring
+    [0,13],[13,14],[14,15],[15,16],
+    // Pinky
+    [0,17],[17,18],[18,19],[19,20],
+    // Palm
+    [5,9],[9,13],[13,17],[17,5]
+];
+
 // Initialize Socket.IO connection
 function initializeSocket() {
     socket = io(SIGNALING_SERVER);
@@ -528,7 +546,7 @@ async function enableHandGuidance() {
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
     handsInstance.setOptions({
-        maxNumHands: 1,
+        maxNumHands: 2,
         modelComplexity: 1,
         minDetectionConfidence: 0.7,
         minTrackingConfidence: 0.5
@@ -561,6 +579,8 @@ function disableHandGuidance() {
     handCamera = null;
     handsInstance = null;
     handGuidanceEnabled = false;
+    // Clear hand overlay
+    clearHandOverlay();
     // Notify clinician to clear overlay
     if (socket && roomId) {
         socket.emit('hand-skeleton', { roomId, skeleton: { clear: true, ts: Date.now() } });
@@ -576,11 +596,18 @@ function onHandsResults(results) {
 
     let payload;
     if (results && results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const landmarks = results.multiHandLandmarks[0] || [];
-        const handedness = (results.multiHandedness && results.multiHandedness[0] && results.multiHandedness[0].label) || null;
+        // Process all detected hands (up to 2)
+        const hands = [];
+        for (let i = 0; i < results.multiHandLandmarks.length && i < 2; i++) {
+            const landmarks = results.multiHandLandmarks[i] || [];
+            const handedness = (results.multiHandedness && results.multiHandedness[i] && results.multiHandedness[i].label) || null;
+            hands.push({
+                landmarks: landmarks.map(p => ({ x: p.x, y: p.y, z: p.z })),
+                handedness
+            });
+        }
         payload = {
-            landmarks: landmarks.map(p => ({ x: p.x, y: p.y, z: p.z })),
-            handedness,
+            hands: hands,
             ts: now
         };
     } else {
@@ -592,7 +619,114 @@ function onHandsResults(results) {
         socket.emit('hand-skeleton', { roomId, skeleton: payload });
         lastSkeletonSentAt = now;
     }
+    
+    // Also draw hands on expert's view
+    drawHandsOnExpertView(results);
 }
+
+function ensureHandOverlayCanvas() {
+    if (!handOverlayCanvas) {
+        const videoWrapper = remoteVideo.parentElement;
+        if (!videoWrapper) return;
+        
+        handOverlayCanvas = document.createElement('canvas');
+        handOverlayCanvas.id = 'expertHandOverlay';
+        handOverlayCanvas.style.position = 'absolute';
+        handOverlayCanvas.style.left = '0';
+        handOverlayCanvas.style.top = '0';
+        handOverlayCanvas.style.width = '100%';
+        handOverlayCanvas.style.height = '100%';
+        handOverlayCanvas.style.pointerEvents = 'none';
+        handOverlayCanvas.style.zIndex = '10';
+        videoWrapper.appendChild(handOverlayCanvas);
+        handOverlayCtx = handOverlayCanvas.getContext('2d');
+    }
+    // Match canvas pixel size to video
+    const rect = remoteVideo.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.floor(rect.width * dpr));
+    const h = Math.max(1, Math.floor(rect.height * dpr));
+    if (handOverlayCanvas.width !== w || handOverlayCanvas.height !== h) {
+        handOverlayCanvas.width = w;
+        handOverlayCanvas.height = h;
+    }
+}
+
+function clearHandOverlay() {
+    if (!handOverlayCtx || !handOverlayCanvas) return;
+    handOverlayCtx.clearRect(0, 0, handOverlayCanvas.width, handOverlayCanvas.height);
+}
+
+function drawHandsOnExpertView(results) {
+    if (!handGuidanceEnabled || !results) {
+        clearHandOverlay();
+        return;
+    }
+    
+    ensureHandOverlayCanvas();
+    if (!handOverlayCtx || !handOverlayCanvas) return;
+    
+    clearHandOverlay();
+    
+    if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+        return;
+    }
+    
+    const dpr = window.devicePixelRatio || 1;
+    const width = handOverlayCanvas.width;
+    const height = handOverlayCanvas.height;
+    
+    // Draw each hand with different colors
+    const handColors = [
+        'rgba(0, 200, 255, 0.9)',  // Cyan for first hand
+        'rgba(255, 200, 0, 0.9)'   // Yellow for second hand
+    ];
+    
+    results.multiHandLandmarks.forEach((landmarks, handIndex) => {
+        if (handIndex >= 2) return; // Only draw up to 2 hands
+        
+        const color = handColors[handIndex] || handColors[0];
+        
+        // Draw connections
+        handOverlayCtx.lineCap = 'round';
+        handOverlayCtx.lineJoin = 'round';
+        handOverlayCtx.strokeStyle = color;
+        handOverlayCtx.lineWidth = Math.max(2, Math.min(width, height) * 0.006);
+        
+        HAND_CONNECTIONS.forEach(([a, b]) => {
+            const pa = landmarks[a];
+            const pb = landmarks[b];
+            if (!pa || !pb) return;
+            const ax = pa.x * width;
+            const ay = pa.y * height;
+            const bx = pb.x * width;
+            const by = pb.y * height;
+            handOverlayCtx.beginPath();
+            handOverlayCtx.moveTo(ax, ay);
+            handOverlayCtx.lineTo(bx, by);
+            handOverlayCtx.stroke();
+        });
+        
+        // Draw joints
+        handOverlayCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        const r = Math.max(2, Math.min(width, height) * 0.004);
+        landmarks.forEach((p) => {
+            const x = p.x * width;
+            const y = p.y * height;
+            handOverlayCtx.beginPath();
+            handOverlayCtx.arc(x, y, r, 0, Math.PI * 2);
+            handOverlayCtx.fill();
+        });
+    });
+}
+
+// Resize hand overlay when video resizes
+remoteVideo.addEventListener('loadedmetadata', () => {
+    ensureHandOverlayCanvas();
+});
+window.addEventListener('resize', () => {
+    ensureHandOverlayCanvas();
+});
 
 // Build Hand Guidance UI when page is ready
 window.addEventListener('DOMContentLoaded', () => {
