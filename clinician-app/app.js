@@ -100,7 +100,6 @@ function initializeSocket() {
     socket.on('annotation', handleAnnotation);
     socket.on('clear-annotations', handleClearAnnotations);
     socket.on('room-users', handleRoomUsers);
-    socket.on('hand-skeleton', handleHandSkeleton);
 }
 
 // Start streaming
@@ -110,6 +109,32 @@ async function startStreaming() {
 
     if (!userName || !roomId) {
         alert('Please enter your name and room ID');
+        return;
+    }
+
+    // Feature flag: use AR feed streamed from Python instead of local camera
+    const USE_AR_FEED = true;
+
+    if (USE_AR_FEED) {
+        // Initialize socket and join room without touching camera
+        initializeSocket();
+        socket.emit('join-room', {
+            roomId,
+            role: 'clinician',
+            userName
+        });
+        // Prepare UI
+        setupPanel.style.display = 'none';
+        videoContainer.style.display = 'block';
+        currentRoomId.textContent = roomId;
+        localVideo.style.display = 'block';
+        const vs = document.getElementById('videoStatus');
+        if (vs) {
+            vs.style.display = 'block';
+            vs.textContent = 'Waiting for AR feed...';
+        }
+        streamStatus.textContent = 'Connecting...';
+        streamStatus.className = 'badge badge-warning';
         return;
     }
 
@@ -289,6 +314,10 @@ function stopStreaming() {
     setupPanel.style.display = 'block';
     videoContainer.style.display = 'none';
     updateConnectionStatus(false);
+    if (localVideo) {
+        localVideo.srcObject = null;
+        localVideo.style.display = 'none';
+    }
 }
 
 // Toggle video
@@ -422,6 +451,13 @@ function createPeerConnection(peerId) {
         } catch (e) {
             console.warn('Codec preference not set:', e);
         }
+    } else {
+        // No local camera: request a recvonly video track for AR WebRTC feed
+        try {
+            pc.addTransceiver('video', { direction: 'recvonly' });
+        } catch (e) {
+            console.warn('Failed to add recvonly transceiver:', e);
+        }
     }
 
     // Handle ICE candidates
@@ -431,6 +467,23 @@ function createPeerConnection(peerId) {
                 candidate: event.candidate,
                 targetId: peerId
             });
+        }
+    };
+
+    // Receive remote AR video track (from Python)
+    pc.ontrack = (event) => {
+        try {
+            const [remoteStream] = event.streams;
+            if (remoteStream) {
+                localVideo.srcObject = remoteStream;
+                localVideo.style.display = 'block';
+                const vs = document.getElementById('videoStatus');
+                if (vs) vs.style.display = 'none';
+                streamStatus.textContent = 'Connected';
+                streamStatus.className = 'badge badge-success';
+            }
+        } catch (e) {
+            console.warn('ontrack handler error:', e);
         }
     };
 
@@ -506,128 +559,7 @@ function handleClearAnnotations() {
     annotationsOverlay.innerHTML = '';
 }
 
-// -----------------------------
-// Hand Skeleton Overlay
-// -----------------------------
-let handCanvas = null;
-let handCtx = null;
-const HAND_CONNECTIONS = [
-    // Thumb
-    [0,1],[1,2],[2,3],[3,4],
-    // Index
-    [0,5],[5,6],[6,7],[7,8],
-    // Middle
-    [0,9],[9,10],[10,11],[11,12],
-    // Ring
-    [0,13],[13,14],[14,15],[15,16],
-    // Pinky
-    [0,17],[17,18],[18,19],[19,20],
-    // Palm
-    [5,9],[9,13],[13,17],[17,5]
-];
-
-function ensureHandCanvas() {
-    if (!handCanvas) {
-        handCanvas = document.createElement('canvas');
-        handCanvas.id = 'handOverlay';
-        handCanvas.style.position = 'absolute';
-        handCanvas.style.left = '0';
-        handCanvas.style.top = '0';
-        handCanvas.style.width = '100%';
-        handCanvas.style.height = '100%';
-        handCanvas.style.pointerEvents = 'none';
-        annotationsOverlay.appendChild(handCanvas);
-        handCtx = handCanvas.getContext('2d');
-    }
-    // Match canvas pixel size to overlay box
-    const rect = annotationsOverlay.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(1, Math.floor(rect.width * dpr));
-    const h = Math.max(1, Math.floor(rect.height * dpr));
-    if (handCanvas.width !== w || handCanvas.height !== h) {
-        handCanvas.width = w;
-        handCanvas.height = h;
-    }
-}
-
-function clearHandOverlay() {
-    if (!handCtx) return;
-    handCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
-}
-
-function drawHandSkeleton(landmarks) {
-    ensureHandCanvas();
-    if (!handCtx) return;
-    clearHandOverlay();
-
-    const dpr = window.devicePixelRatio || 1;
-    const rect = annotationsOverlay.getBoundingClientRect();
-    const width = handCanvas.width;
-    const height = handCanvas.height;
-
-    // Draw connections
-    handCtx.lineCap = 'round';
-    handCtx.lineJoin = 'round';
-    handCtx.strokeStyle = 'rgba(0, 200, 255, 0.9)';
-    handCtx.lineWidth = Math.max(2, Math.min(width, height) * 0.006);
-
-    HAND_CONNECTIONS.forEach(([a, b]) => {
-        const pa = landmarks[a];
-        const pb = landmarks[b];
-        if (!pa || !pb) return;
-        const ax = pa.x * width;
-        const ay = pa.y * height;
-        const bx = pb.x * width;
-        const by = pb.y * height;
-        handCtx.beginPath();
-        handCtx.moveTo(ax, ay);
-        handCtx.lineTo(bx, by);
-        handCtx.stroke();
-    });
-
-    // Draw joints
-    handCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    const r = Math.max(2, Math.min(width, height) * 0.004);
-    landmarks.forEach((p) => {
-        const x = p.x * width;
-        const y = p.y * height;
-        handCtx.beginPath();
-        handCtx.arc(x, y, r, 0, Math.PI * 2);
-        handCtx.fill();
-    });
-}
-
-function handleHandSkeleton({ skeleton }) {
-    if (!skeleton || skeleton.clear) {
-        clearHandOverlay();
-        return;
-    }
-    const landmarks = skeleton.landmarks || [];
-    if (!landmarks.length) {
-        clearHandOverlay();
-        return;
-    }
-    // landmarks are normalized [0..1]; draw directly
-    drawHandSkeleton(landmarks);
-}
-
-// Keep overlay in sync with video size
-function resizeHandOverlay() {
-    if (!annotationsOverlay) return;
-    if (!handCanvas) return;
-    ensureHandCanvas();
-    clearHandOverlay();
-}
-
-// Hook into existing lifecycle
-window.addEventListener('resize', resizeHandOverlay);
-// After video is visible, create overlay
-localVideo && localVideo.addEventListener('loadedmetadata', () => {
-    setTimeout(() => {
-        ensureHandCanvas();
-        resizeHandOverlay();
-    }, 0);
-});
+// Removed JS hand skeleton overlay; rely on MediaPipe-driven guidance instead.
 
 // Update connection status indicator
 function updateConnectionStatus(connected) {

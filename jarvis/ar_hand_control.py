@@ -8,6 +8,9 @@ import os
 import requests
 import threading
 import socketio
+import asyncio
+import av
+from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, RTCConfiguration, RTCIceServer
 from renderer_3d import Renderer3D
 from virtual_object_3d import VirtualObject3D
 
@@ -73,6 +76,10 @@ class HandGestureDetector:
         self._skel_lock = threading.Lock()
         self._sio = None
         self._sio_thread = None
+        # WebRTC state
+        self._rtc_loop = None
+        self._pcs = {}  # peerId -> RTCPeerConnection
+        self._video_track = None
         if self.use_socketio:
             self._start_socketio_client()
         if not self.use_remote:
@@ -91,7 +98,8 @@ class HandGestureDetector:
         def connect():
             try:
                 print(f"[AR] Socket.IO connected to {self.signaling_base}")
-                self._sio.emit('join-room', {'roomId': self.room_id, 'role': 'observer', 'userName': 'AR Python'})
+                # Register as 'expert' so clinician initiates WebRTC offer
+                self._sio.emit('join-room', {'roomId': self.room_id, 'role': 'expert', 'userName': 'AR Python'})
                 print(f"[AR] Emitted join-room roomId={self.room_id}")
             except Exception:
                 print("[AR] Error emitting join-room")
@@ -117,6 +125,35 @@ class HandGestureDetector:
         @self._sio.event
         def reconnect_attempt(number):
             print(f"[AR] Socket.IO reconnect attempt {number}")
+        @self._sio.on('offer')
+        def on_offer(msg):
+            try:
+                offer = msg.get('offer')
+                sender = msg.get('senderId')
+                if not offer or not sender:
+                    return
+                print("[AR] Received offer from", sender)
+                # Handle in RTC loop
+                if self._rtc_loop is None:
+                    self._rtc_loop = asyncio.new_event_loop()
+                    t = threading.Thread(target=self._rtc_loop.run_forever, daemon=True)
+                    t.start()
+                asyncio.run_coroutine_threadsafe(self._handle_offer(offer, sender), self._rtc_loop)
+            except Exception as e:
+                print("[AR] Error processing offer:", e)
+        @self._sio.on('ice-candidate')
+        def on_ice(msg):
+            try:
+                cand = msg.get('candidate')
+                sender = msg.get('senderId')
+                if not cand or not sender:
+                    return
+                pc = self._pcs.get(sender)
+                if pc is None:
+                    return
+                asyncio.run_coroutine_threadsafe(pc.addIceCandidate(cand), self._rtc_loop)
+            except Exception as e:
+                print("[AR] Error adding ICE candidate:", e)
         def run():
             try:
                 self._sio.connect(self.signaling_base, transports=['websocket', 'polling'])
@@ -125,6 +162,71 @@ class HandGestureDetector:
                 print("[AR] Socket.IO thread terminated unexpectedly")
         self._sio_thread = threading.Thread(target=run, daemon=True)
         self._sio_thread.start()
+
+    # ---------- WebRTC (aiortc) ----------
+    class _ARVideoTrack(VideoStreamTrack):
+        kind = "video"
+        def __init__(self, controller:'ARHandController'):
+            super().__init__()
+            self.controller = controller
+        async def recv(self):
+            pts, time_base = await self.next_timestamp()
+            frame_bgr = None
+            # Get latest frame from controller
+            try:
+                frame_bgr = self.controller.get_latest_frame()
+            except Exception:
+                pass
+            if frame_bgr is None:
+                # produce a blank frame
+                frame_bgr = np.zeros((720, 1280, 3), dtype=np.uint8)
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            video_frame = av.VideoFrame.from_ndarray(frame_rgb, format="rgb24")
+            video_frame.pts = pts
+            video_frame.time_base = time_base
+            return video_frame
+
+    async def _handle_offer(self, offer_dict, sender_id):
+        try:
+            configuration = RTCConfiguration([
+                RTCIceServer(urls='stun:stun.l.google.com:19302'),
+                RTCIceServer(urls='stun:stun1.l.google.com:19302')
+            ])
+            # Create/replace pc for this sender
+            if sender_id in self._pcs:
+                try:
+                    await self._pcs[sender_id].close()
+                except Exception:
+                    pass
+            pc = RTCPeerConnection(configuration=configuration)
+            self._pcs[sender_id] = pc
+            # ICE outgoing
+            @pc.on('icecandidate')
+            def on_icecandidate(event):
+                try:
+                    cand = event.candidate
+                    if cand:
+                        self._sio.emit('ice-candidate', {'candidate': cand, 'targetId': sender_id})
+                except Exception:
+                    pass
+            # Attach video track
+            if self._video_track is None:
+                # controller instance lives in ARHandController; we'll patch in later
+                pass
+            # Set remote, add track, answer
+            await pc.setRemoteDescription(RTCSessionDescription(sdp=offer_dict['sdp'], type=offer_dict['type']))
+            # If no track yet, add it now (we need the controller instance)
+            if self._video_track is None and hasattr(self, '_controller_ref') and self._controller_ref is not None:
+                self._video_track = self._ARVideoTrack(self._controller_ref)
+            if self._video_track is not None:
+                pc.addTrack(self._video_track)
+            # Ensure at least one send video transceiver
+            answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+            self._sio.emit('answer', {'answer': {'sdp': pc.localDescription.sdp, 'type': pc.localDescription.type}, 'targetId': sender_id})
+            print("[AR] Sent answer to", sender_id)
+        except Exception as e:
+            print("[AR] _handle_offer error:", e)
         
     def detect_hands(self, frame: np.ndarray) -> List[dict]:
         if self.use_socketio:
@@ -403,6 +505,8 @@ class ARHandController:
     def __init__(self):
         # Hand detector
         self.detector = HandGestureDetector()
+        # Make detector aware of controller for AR video track frames
+        setattr(self.detector, '_controller_ref', self)
         
         # Virtual objects
         self.objects: List[VirtualObject] = []
@@ -415,6 +519,8 @@ class ARHandController:
         self.grab_states = {}  # hand_idx -> {object, initial_pinch_distance, initial_size}
         self.grab_states_3d = {}  # hand_idx -> {object, initial_pinch_distance, initial_size, last_hand_pos}
         self.last_frame_time = time.time()
+        self._latest_frame = None
+        self._frame_lock = threading.Lock()
         
         # Pinch state tracking for hysteresis
         self.pinch_states = {}  # hand_idx -> {'was_pinching': bool, 'pinch_frames': int}
@@ -663,6 +769,13 @@ class ARHandController:
         # Draw rotation hand indicators
         frame = self._draw_rotation_hand_indicators(frame, hands_info)
         
+        # store latest frame for WebRTC track
+        try:
+            with self._frame_lock:
+                self._latest_frame = frame.copy()
+        except Exception:
+            pass
+
         # Show frame
         cv2.imshow('AR Hand Control', frame)
         
@@ -1545,6 +1658,9 @@ class ARHandController:
             self.cap.release()
         cv2.destroyAllWindows()
 
+    def get_latest_frame(self):
+        with self._frame_lock:
+            return None if self._latest_frame is None else self._latest_frame.copy()
 
 def main():
     """Main function to run the AR hand control application"""

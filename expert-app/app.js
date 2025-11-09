@@ -57,6 +57,7 @@ let roomId = null;
 let userName = null;
 let currentTool = 'arrow';
 let annotations = [];
+let currentPeerId = null;
 
 // DOM Elements
 const setupPanel = document.getElementById('setupPanel');
@@ -194,8 +195,29 @@ function toggleAudio() {
 }
 
 // Handle user joined
-function handleUserJoined({ userId, role, userName }) {
+async function handleUserJoined({ userId, role, userName }) {
     console.log(`User joined: ${userName} (${role})`);
+    try {
+        // If AR Python (expert sender) joins, initiate a recvonly WebRTC to receive its video
+        const isArPython = userName && userName.toLowerCase().includes('ar python');
+        if (role === 'expert' && isArPython) {
+            peerConnection = createPeerConnection();
+            currentPeerId = userId;
+            try {
+                peerConnection.addTransceiver('video', { direction: 'recvonly' });
+            } catch (e) {
+                console.warn('Failed to add recvonly transceiver:', e);
+            }
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.emit('offer', {
+                offer,
+                targetId: userId
+            });
+        }
+    } catch (e) {
+        console.warn('Failed to connect to AR sender:', e);
+    }
     updateUsersList();
 }
 
@@ -278,7 +300,7 @@ function createPeerConnection() {
         if (event.candidate && socket) {
             socket.emit('ice-candidate', {
                 candidate: event.candidate,
-                targetId: event.target.remoteUserId || null // Will be set properly in production
+                targetId: currentPeerId || null
             });
         }
     };
