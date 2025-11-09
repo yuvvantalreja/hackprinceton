@@ -613,6 +613,45 @@ function drawHandSkeleton(hands) {
             handCtx.arc(x, y, r, 0, Math.PI * 2);
             handCtx.fill();
         });
+        
+        // Draw pinch indicator if pinching (if detailed info is available)
+        if (hand.is_pinching && hand.pinch_center) {
+            const pinchX = hand.pinch_center.x * width;
+            const pinchY = hand.pinch_center.y * height;
+            
+            // Draw pinch circle
+            handCtx.strokeStyle = 'rgba(255, 100, 100, 0.8)';
+            handCtx.lineWidth = 3;
+            handCtx.beginPath();
+            handCtx.arc(pinchX, pinchY, 15, 0, Math.PI * 2);
+            handCtx.stroke();
+            
+            // Draw pinch center dot
+            handCtx.fillStyle = 'rgba(255, 100, 100, 0.9)';
+            handCtx.beginPath();
+            handCtx.arc(pinchX, pinchY, 5, 0, Math.PI * 2);
+            handCtx.fill();
+        }
+        
+        // Draw palm center (if available)
+        if (hand.palm_center) {
+            const palmX = hand.palm_center.x * width;
+            const palmY = hand.palm_center.y * height;
+            handCtx.fillStyle = 'rgba(100, 255, 100, 0.7)';
+            handCtx.beginPath();
+            handCtx.arc(palmX, palmY, 8, 0, Math.PI * 2);
+            handCtx.fill();
+        }
+        
+        // Draw gesture label (if available)
+        if (hand.gestures && hand.gestures.length > 0 && hand.palm_center) {
+            const gestureText = hand.gestures[0].toUpperCase();
+            const palmX = hand.palm_center.x * width;
+            const palmY = hand.palm_center.y * height;
+            handCtx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            handCtx.font = '14px Arial';
+            handCtx.fillText(gestureText, palmX + 15, palmY - 10);
+        }
     });
 }
 

@@ -587,6 +587,115 @@ function disableHandGuidance() {
     }
 }
 
+function extractHandInfo(landmarks, handedness) {
+    // Extract detailed hand information like Python code
+    const thumb_tip = landmarks[4];
+    const index_tip = landmarks[8];
+    const middle_tip = landmarks[12];
+    const ring_tip = landmarks[16];
+    const pinky_tip = landmarks[20];
+    const wrist = landmarks[0];
+    const index_mcp = landmarks[5];
+    
+    // Calculate positions (normalized 0-1, will be converted to pixels on display)
+    const thumb_pos = { x: thumb_tip.x, y: thumb_tip.y };
+    const index_pos = { x: index_tip.x, y: index_tip.y };
+    const middle_pos = { x: middle_tip.x, y: middle_tip.y };
+    const wrist_pos = { x: wrist.x, y: wrist.y };
+    
+    // Calculate palm center
+    const palm_center = {
+        x: (wrist.x + index_mcp.x) / 2,
+        y: (wrist.y + index_mcp.y) / 2
+    };
+    
+    // Calculate pinch distance (normalized)
+    const pinch_distance = Math.sqrt(
+        Math.pow(thumb_pos.x - index_pos.x, 2) + 
+        Math.pow(thumb_pos.y - index_pos.y, 2)
+    );
+    
+    // Calculate pinch center
+    const pinch_center = {
+        x: (thumb_pos.x + index_pos.x) / 2,
+        y: (thumb_pos.y + index_pos.y) / 2
+    };
+    
+    // Detect gestures
+    const gestures = detectGestures(landmarks);
+    
+    // Pinch detection (same logic as Python code)
+    const thumb_bent = thumb_tip.x < landmarks[3].x; // Thumb bent inward
+    const index_bent = index_tip.y > landmarks[6].y; // Index finger bent down
+    
+    // Pinch detection with multiple criteria
+    let is_pinching = (pinch_distance < 0.06 && // ~60 pixels at 1000px width
+                      pinch_distance > 0.01 && // Not too close
+                      (thumb_bent || index_bent || pinch_distance < 0.035));
+    
+    // Fallback: if very close, always consider pinching
+    if (pinch_distance < 0.025) {
+        is_pinching = true;
+    }
+    
+    return {
+        landmarks: landmarks.map(p => ({ x: p.x, y: p.y, z: p.z })),
+        handedness: handedness || 'Unknown',
+        thumb_pos,
+        index_pos,
+        middle_pos,
+        palm_center,
+        pinch_center,
+        wrist_pos,
+        gestures,
+        pinch_distance,
+        is_pinching,
+        thumb_bent,
+        index_bent
+    };
+}
+
+function detectGestures(landmarks) {
+    const gestures = [];
+    const fingertips = [4, 8, 12, 16, 20]; // thumb, index, middle, ring, pinky
+    const pip_joints = [3, 6, 10, 14, 18];
+    
+    const extended_fingers = [];
+    
+    // Thumb (special case - check x coordinate)
+    if (landmarks[4].x > landmarks[3].x) {
+        extended_fingers.push(true);
+    } else {
+        extended_fingers.push(false);
+    }
+    
+    // Other fingers
+    for (let i = 1; i < 5; i++) {
+        if (landmarks[fingertips[i]].y < landmarks[pip_joints[i]].y) {
+            extended_fingers.push(true);
+        } else {
+            extended_fingers.push(false);
+        }
+    }
+    
+    const extended_count = extended_fingers.filter(f => f).length;
+    
+    // Classify gestures
+    if (extended_count === 0) {
+        gestures.push("fist");
+    } else if (extended_count === 1 && extended_fingers[1]) {
+        gestures.push("pointing");
+    } else if (extended_count === 2 && extended_fingers[0] && extended_fingers[1]) {
+        gestures.push("pinch");
+    } else if (extended_count === 5) {
+        gestures.push("open_hand");
+    } else if (extended_count === 2 && extended_fingers[1] && extended_fingers[2]) {
+        gestures.push("peace");
+    }
+    
+    return gestures;
+}
+
 function onHandsResults(results) {
     // Throttle send rate
     const now = Date.now();
@@ -596,15 +705,15 @@ function onHandsResults(results) {
 
     let payload;
     if (results && results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        // Process all detected hands (up to 2)
+        // Process all detected hands (up to 2) with detailed information
         const hands = [];
         for (let i = 0; i < results.multiHandLandmarks.length && i < 2; i++) {
             const landmarks = results.multiHandLandmarks[i] || [];
             const handedness = (results.multiHandedness && results.multiHandedness[i] && results.multiHandedness[i].label) || null;
-            hands.push({
-                landmarks: landmarks.map(p => ({ x: p.x, y: p.y, z: p.z })),
-                handedness
-            });
+            
+            // Extract detailed hand information
+            const handInfo = extractHandInfo(landmarks, handedness);
+            hands.push(handInfo);
         }
         payload = {
             hands: hands,
@@ -672,7 +781,6 @@ function drawHandsOnExpertView(results) {
         return;
     }
     
-    const dpr = window.devicePixelRatio || 1;
     const width = handOverlayCanvas.width;
     const height = handOverlayCanvas.height;
     
@@ -686,6 +794,10 @@ function drawHandsOnExpertView(results) {
         if (handIndex >= 2) return; // Only draw up to 2 hands
         
         const color = handColors[handIndex] || handColors[0];
+        const handedness = (results.multiHandedness && results.multiHandedness[handIndex] && results.multiHandedness[handIndex].label) || null;
+        
+        // Extract hand info for pinch visualization
+        const handInfo = extractHandInfo(landmarks, handedness);
         
         // Draw connections
         handOverlayCtx.lineCap = 'round';
@@ -717,6 +829,41 @@ function drawHandsOnExpertView(results) {
             handOverlayCtx.arc(x, y, r, 0, Math.PI * 2);
             handOverlayCtx.fill();
         });
+        
+        // Draw pinch indicator if pinching
+        if (handInfo.is_pinching) {
+            const pinchX = handInfo.pinch_center.x * width;
+            const pinchY = handInfo.pinch_center.y * height;
+            
+            // Draw pinch circle
+            handOverlayCtx.strokeStyle = 'rgba(255, 100, 100, 0.8)';
+            handOverlayCtx.lineWidth = 3;
+            handOverlayCtx.beginPath();
+            handOverlayCtx.arc(pinchX, pinchY, 15, 0, Math.PI * 2);
+            handOverlayCtx.stroke();
+            
+            // Draw pinch center dot
+            handOverlayCtx.fillStyle = 'rgba(255, 100, 100, 0.9)';
+            handOverlayCtx.beginPath();
+            handOverlayCtx.arc(pinchX, pinchY, 5, 0, Math.PI * 2);
+            handOverlayCtx.fill();
+        }
+        
+        // Draw palm center
+        const palmX = handInfo.palm_center.x * width;
+        const palmY = handInfo.palm_center.y * height;
+        handOverlayCtx.fillStyle = 'rgba(100, 255, 100, 0.7)';
+        handOverlayCtx.beginPath();
+        handOverlayCtx.arc(palmX, palmY, 8, 0, Math.PI * 2);
+        handOverlayCtx.fill();
+        
+        // Draw gesture label
+        if (handInfo.gestures && handInfo.gestures.length > 0) {
+            const gestureText = handInfo.gestures[0].toUpperCase();
+            handOverlayCtx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            handOverlayCtx.font = '14px Arial';
+            handOverlayCtx.fillText(gestureText, palmX + 15, palmY - 10);
+        }
     });
 }
 
