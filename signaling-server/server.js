@@ -19,8 +19,37 @@ app.use(express.json());
 // Serve static files for both apps
 app.use('/clinician', express.static(path.join(__dirname, '../clinician-app')));
 app.use('/expert', express.static(path.join(__dirname, '../expert-app')));
-// Serve CAD/OBJ assets
-app.use('/assets', express.static(path.join(__dirname, '../jarvis/online')));
+
+// In-memory storage for latest expert hand landmarks per room
+const lastSkeletonByRoom = new Map();
+
+// Expose latest hand landmarks for a given room
+// Example: GET /expert/hand-landmarks?roomId=ROOM123
+app.get('/expert/hand-landmarks', (req, res) => {
+  const roomId = req.query.roomId;
+  if (!roomId) {
+    return res.status(400).json({ error: 'roomId is required' });
+  }
+  const data = lastSkeletonByRoom.get(roomId) || null;
+  res.json({
+    roomId,
+    data,
+  });
+});
+
+// Also expose under /api to avoid any static route conflicts:
+// Example: GET /api/hand-landmarks?roomId=ROOM123
+app.get('/api/hand-landmarks', (req, res) => {
+  const roomId = req.query.roomId;
+  if (!roomId) {
+    return res.status(400).json({ error: 'roomId is required' });
+  }
+  const data = lastSkeletonByRoom.get(roomId) || null;
+  res.json({
+    roomId,
+    data,
+  });
+});
 
 // Root route - show selection page
 app.get('/', (req, res) => {
@@ -238,31 +267,19 @@ io.on('connection', (socket) => {
     if (!roomId) {
       return;
     }
+    // Store latest for polling access
+    try {
+      lastSkeletonByRoom.set(roomId, {
+        skeleton,
+        updatedAt: Date.now(),
+        senderId: socket.id,
+      });
+    } catch (e) {
+      // no-op
+    }
     // Broadcast to everyone else in the room
     socket.to(roomId).emit('hand-skeleton', {
       skeleton,
-      senderId: socket.id,
-      timestamp: Date.now()
-    });
-  });
-
-  // CAD object state streaming (expert/python -> clinician)
-  socket.on('cad-state', ({ roomId, state }) => {
-    // state: { objects: [{ id, name, type, position:{x,y,z}, rotation:{x,y,z}, scale, grabbed?: boolean }], clear?: boolean }
-    if (!roomId) return;
-    socket.to(roomId).emit('cad-state', {
-      state,
-      senderId: socket.id,
-      timestamp: Date.now()
-    });
-  });
-
-  // CAD object selection (expert UI -> python and viewers)
-  socket.on('cad-select', ({ roomId, select }) => {
-    // select: { id?: string|number, name?: string, action: 'select'|'clear' }
-    if (!roomId) return;
-    socket.to(roomId).emit('cad-select', {
-      select,
       senderId: socket.id,
       timestamp: Date.now()
     });

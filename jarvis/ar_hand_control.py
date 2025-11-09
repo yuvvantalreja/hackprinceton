@@ -5,12 +5,9 @@ import math
 from typing import List, Tuple, Optional
 import time
 import os
+import requests
 from renderer_3d import Renderer3D
 from virtual_object_3d import VirtualObject3D
-try:
-    import socketio  # python-socketio client
-except Exception:
-    socketio = None
 
 class VirtualObject:
     """Represents a virtual object that can be manipulated in AR space"""
@@ -61,43 +58,67 @@ class VirtualObject:
 class HandGestureDetector:
     
     def __init__(self):
-        self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=2,
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.5
-        )
-        self.mp_drawing = mp.solutions.drawing_utils
+        # Config to use remote landmarks (from Flask) instead of local MediaPipe
+        self.use_remote = os.environ.get("USE_REMOTE_HANDS", "1") not in ("0", "false", "False")
+        self.flask_base = os.environ.get("FLASK_BASE_URL", "http://127.0.0.1:5001")
+        self.room_id = os.environ.get("ROOM_ID", "demo")
+        self.session = requests.Session()
+        if not self.use_remote:
+            self.mp_hands = mp.solutions.hands
+            self.hands = self.mp_hands.Hands(
+                static_image_mode=False,
+                max_num_hands=2,
+                min_detection_confidence=0.7,
+                min_tracking_confidence=0.5
+            )
+            self.mp_drawing = mp.solutions.drawing_utils
         
     def detect_hands(self, frame: np.ndarray) -> List[dict]:
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.hands.process(rgb_frame)
-        
-        hands_info = []
-        if results.multi_hand_landmarks:
-            handedness_list = results.multi_handedness or []
-            for hand_idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
-                hand_info = self._extract_hand_info(hand_landmarks, frame.shape)
-                hand_info['landmarks'] = hand_landmarks
-                hand_info['hand_idx'] = hand_idx
+        if self.use_remote:
+            # Fetch latest skeleton from Flask and adapt to hands_info
+            try:
+                url = f"{self.flask_base.rstrip('/')}/landmarks/latest"
+                resp = self.session.get(url, params={"room_id": self.room_id}, timeout=2.5)
+                resp.raise_for_status()
+                payload = resp.json() or {}
+                data = payload.get("data") or {}
+                skel = data.get("skeleton") or {}
+                landmarks = skel.get("landmarks") or []
+                if not landmarks:
+                    return []
+                hand_info = self._extract_hand_info_from_normalized(landmarks, frame.shape, skel.get("handedness"))
+                hand_info['hand_idx'] = 0
+                return [hand_info]
+            except Exception:
+                return []
+        else:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = self.hands.process(rgb_frame)
+            
+            hands_info = []
+            if results.multi_hand_landmarks:
+                handedness_list = results.multi_handedness or []
+                for hand_idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                    hand_info = self._extract_hand_info(hand_landmarks, frame.shape)
+                    hand_info['landmarks'] = hand_landmarks
+                    hand_info['hand_idx'] = hand_idx
 
-                if hand_idx < len(handedness_list) and handedness_list[hand_idx].classification:
-                    classification = handedness_list[hand_idx].classification[0]
-                    label = classification.label.lower()
-                    hand_info['hand_label'] = label
-                    hand_info['hand_confidence'] = classification.score
-                    hand_info['hand_is_left'] = label == "left"
-                    hand_info['hand_is_right'] = label == "right"
-                else:
-                    hand_info['hand_label'] = "unknown"
-                    hand_info['hand_confidence'] = 0.0
-                    hand_info['hand_is_left'] = False
-                    hand_info['hand_is_right'] = False
+                    if hand_idx < len(handedness_list) and handedness_list[hand_idx].classification:
+                        classification = handedness_list[hand_idx].classification[0]
+                        label = classification.label.lower()
+                        hand_info['hand_label'] = label
+                        hand_info['hand_confidence'] = classification.score
+                        hand_info['hand_is_left'] = label == "left"
+                        hand_info['hand_is_right'] = label == "right"
+                    else:
+                        hand_info['hand_label'] = "unknown"
+                        hand_info['hand_confidence'] = 0.0
+                        hand_info['hand_is_left'] = False
+                        hand_info['hand_is_right'] = False
 
-                hands_info.append(hand_info)
-                
-        return hands_info
+                    hands_info.append(hand_info)
+                    
+            return hands_info
     
     def _extract_hand_info(self, landmarks, frame_shape) -> dict:
         h, w = frame_shape[:2]
@@ -159,6 +180,65 @@ class HandGestureDetector:
             'index_bent': index_bent
         }
     
+    def _extract_hand_info_from_normalized(self, lm_list: List[dict], frame_shape, handedness: Optional[str]) -> dict:
+        """Build the same structure as _extract_hand_info using normalized landmark dicts ({x,y,z})."""
+        h, w = frame_shape[:2]
+        def get(i):
+            if i < 0 or i >= len(lm_list): 
+                return {'x': 0.0, 'y': 0.0, 'z': 0.0}
+            return lm_list[i]
+        thumb_tip = get(4)
+        index_tip = get(8)
+        middle_tip = get(12)
+        ring_tip = get(16)
+        pinky_tip = get(20)
+        wrist = get(0)
+        index_mcp = get(5)
+        # Pixel coords
+        thumb_pos = (int(thumb_tip['x'] * w), int(thumb_tip['y'] * h))
+        index_pos = (int(index_tip['x'] * w), int(index_tip['y'] * h))
+        middle_pos = (int(middle_tip['x'] * w), int(middle_tip['y'] * h))
+        wrist_pos = (int(wrist['x'] * w), int(wrist['y'] * h))
+        palm_x = int((wrist['x'] + index_mcp['x']) * w / 2)
+        palm_y = int((wrist['y'] + index_mcp['y']) * h / 2)
+        palm_center = (palm_x, palm_y)
+        pinch_distance = math.sqrt((thumb_pos[0] - index_pos[0]) ** 2 + (thumb_pos[1] - index_pos[1]) ** 2)
+        pinch_center = ((thumb_pos[0] + index_pos[0]) // 2, (thumb_pos[1] + index_pos[1]) // 2)
+        # Bent heuristics
+        thumb_bent = thumb_tip['x'] < get(3)['x']
+        index_bent = index_tip['y'] > get(6)['y']
+        # Pinch heuristic
+        is_pinching = (pinch_distance < 60 and pinch_distance > 10 and (thumb_bent or index_bent or pinch_distance < 35))
+        if pinch_distance < 25:
+            is_pinching = True
+        gestures = self._detect_gestures_from_list(lm_list)
+        info = {
+            'thumb_pos': thumb_pos,
+            'index_pos': index_pos,
+            'middle_pos': middle_pos,
+            'palm_center': palm_center,
+            'pinch_center': pinch_center,
+            'wrist_pos': wrist_pos,
+            'gestures': gestures,
+            'pinch_distance': pinch_distance,
+            'is_pinching': is_pinching,
+            'thumb_bent': thumb_bent,
+            'index_bent': index_bent
+        }
+        # Handedness mapping
+        if handedness:
+            label = handedness.lower()
+            info['hand_label'] = label
+            info['hand_confidence'] = 1.0
+            info['hand_is_left'] = label == 'left'
+            info['hand_is_right'] = label == 'right'
+        else:
+            info['hand_label'] = 'unknown'
+            info['hand_confidence'] = 0.0
+            info['hand_is_left'] = False
+            info['hand_is_right'] = False
+        return info
+    
     def _detect_gestures(self, landmarks) -> List[str]:
         """Detect specific hand gestures"""
         gestures = []
@@ -197,6 +277,32 @@ class HandGestureDetector:
         elif extended_count == 2 and extended_fingers[1] and extended_fingers[2]:  # Index + middle
             gestures.append("peace")
             
+        return gestures
+    
+    def _detect_gestures_from_list(self, lm_list: List[dict]) -> List[str]:
+        """Detect gestures given a list of normalized dicts."""
+        gestures = []
+        def y(i): 
+            return lm_list[i]['y'] if 0 <= i < len(lm_list) else 0.0
+        def x(i): 
+            return lm_list[i]['x'] if 0 <= i < len(lm_list) else 0.0
+        fingertips = [4, 8, 12, 16, 20]
+        pip_joints = [3, 6, 10, 14, 18]
+        extended_fingers = []
+        extended_fingers.append(x(4) > x(3))  # thumb
+        for i in range(1, 5):
+            extended_fingers.append(y(fingertips[i]) < y(pip_joints[i]))
+        extended_count = sum(1 for f in extended_fingers if f)
+        if extended_count == 0:
+            gestures.append("fist")
+        elif extended_count == 1 and extended_fingers[1]:
+            gestures.append("pointing")
+        elif extended_count == 2 and extended_fingers[0] and extended_fingers[1]:
+            gestures.append("pinch")
+        elif extended_count == 5:
+            gestures.append("open_hand")
+        elif extended_count == 2 and extended_fingers[1] and extended_fingers[2]:
+            gestures.append("peace")
         return gestures
     
     def draw_landmarks(self, frame: np.ndarray, hands_info: List[dict]) -> np.ndarray:
@@ -242,15 +348,6 @@ class ARHandController:
         
         # Create some initial objects
         self._create_initial_objects()
-        
-        # Socket.IO integration (optional)
-        self.sio = None
-        self.room_id = os.environ.get('HP_ROOM_ID') or os.environ.get('ROOM_ID')
-        self.user_name = os.environ.get('HP_USER_NAME') or 'Expert-Py'
-        self.signaling_server = os.environ.get('HP_SIGNALING_SERVER') or os.environ.get('SIGNALING_SERVER') or 'http://localhost:3001'
-        self._last_emit_time = 0.0
-        self._emit_interval = 1.0 / 15.0  # ~15 FPS for CAD state
-        self._init_socket_if_configured()
         
     def _create_initial_objects(self):
         """Create initial virtual objects"""
@@ -383,8 +480,6 @@ class ARHandController:
         
         while self.is_running:
             self._process_frame()
-            # Emit CAD state to web if connected
-            self._emit_cad_state_if_due()
             
         self._cleanup()
     
@@ -596,9 +691,6 @@ class ARHandController:
                 
                 self.objects[next_index].selected = True
                 print(f"Selected 2D object {next_index + 1}/{len(self.objects)}")
-        # Handle SocketIO events (non-blocking)
-        if self.sio is not None:
-            self.sio.sleep(0)
     
     def _process_interactions(self, hands_info: List[dict]):
         """Process hand interactions with objects"""
@@ -1369,110 +1461,6 @@ class ARHandController:
         if self.cap:
             self.cap.release()
         cv2.destroyAllWindows()
-        if self.sio is not None:
-            try:
-                self.sio.disconnect()
-            except Exception:
-                pass
-
-    # -----------------------------
-    # Socket.IO bridge integration
-    # -----------------------------
-    def _init_socket_if_configured(self):
-        """Initialize Socket.IO client if env provides room/server."""
-        if self.room_id and socketio is not None:
-            try:
-                self.sio = socketio.Client()
-                @self.sio.event
-                def connect():
-                    try:
-                        self.sio.emit('join-room', {
-                            'roomId': self.room_id,
-                            'role': 'expert',  # reuse expert role
-                            'userName': self.user_name
-                        })
-                        print(f"[Socket] Connected to {self.signaling_server}, joined room {self.room_id} as {self.user_name}")
-                    except Exception as e:
-                        print(f"[Socket] Join failed: {e}")
-                @self.sio.on('cad-select')
-                def on_cad_select(data):
-                    try:
-                        select = data.get('select', {}) if isinstance(data, dict) else {}
-                        action = select.get('action', 'select')
-                        sel_id = select.get('id')
-                        sel_name = select.get('name')
-                        if action == 'clear':
-                            for obj in self.objects_3d:
-                                obj.selected = False
-                            return
-                        # Resolve index
-                        index = None
-                        if sel_id is not None:
-                            try:
-                                index = int(sel_id)
-                            except Exception:
-                                index = None
-                        if index is None and sel_name:
-                            for i, o in enumerate(self.objects_3d):
-                                if getattr(o, 'label', os.path.basename(o.obj_path)) == sel_name:
-                                    index = i
-                                    break
-                        if index is not None and 0 <= index < len(self.objects_3d):
-                            for i, o in enumerate(self.objects_3d):
-                                o.selected = (i == index)
-                            print(f"[Socket] Selected 3D object index {index}")
-                    except Exception as e:
-                        print(f"[Socket] cad-select handling error: {e}")
-                @self.sio.event
-                def disconnect():
-                    print("[Socket] Disconnected")
-                # Connect
-                self.sio.connect(self.signaling_server, transports=['websocket', 'polling'])
-            except Exception as e:
-                print(f"[Socket] Connection failed: {e}")
-                self.sio = None
-        else:
-            if socketio is None and self.room_id:
-                print("[Socket] python-socketio not installed; CAD state streaming disabled.")
-            else:
-                print("[Socket] No ROOM_ID provided; CAD state streaming disabled.")
-
-    def _serialize_cad_state(self) -> dict:
-        """Create a room-agnostic CAD state payload."""
-        objects = []
-        # 3D objects
-        for idx, obj in enumerate(self.objects_3d):
-            name = getattr(obj, 'label', None)
-            if name is None:
-                # set once from creation context if available
-                base = os.path.basename(getattr(obj, 'obj_path', f'obj_{idx}'))
-                name = os.path.splitext(base)[0]
-                setattr(obj, 'label', name)
-            objects.append({
-                'id': idx,
-                'name': name,
-                'type': 'cad',
-                'position': { 'x': float(obj.x), 'y': float(obj.y), 'z': float(obj.z) },
-                'rotation': { 'x': float(obj.rotation_x), 'y': float(obj.rotation_y), 'z': float(obj.rotation_z) },
-                'scale': float(obj.scale),
-                'grabbed': bool(obj.is_grabbed)
-            })
-        return { 'objects': objects }
-
-    def _emit_cad_state_if_due(self):
-        """Emit CAD state via socket at a throttled cadence."""
-        if self.sio is None or not self.room_id:
-            return
-        now = time.time()
-        if (now - self._last_emit_time) < self._emit_interval:
-            return
-        try:
-            state = self._serialize_cad_state()
-            self.sio.emit('cad-state', { 'roomId': self.room_id, 'state': state })
-            self._last_emit_time = now
-        except Exception as e:
-            # Non-fatal
-            pass
 
 
 def main():
