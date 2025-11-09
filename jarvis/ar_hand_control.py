@@ -583,72 +583,11 @@ class ARHandController:
         # Selection system tracking (two-hand selection)
         self.selection_mode_objects = set()  # Set of objects currently in selection mode (grabbed by 2 hands)
         
-        # Explicit rotation mode tracking (simplified)
-        # No longer needed - using explicit rotation state in VirtualObject3D
         
         # Display mode
         self.show_3d_objects = True
-        self.show_2d_objects = True
+        self.show_2d_objects = False
         
-        # Create some initial objects
-        self._create_initial_objects()
-        
-    def _create_initial_objects(self):
-        """Create initial virtual objects"""
-        # 2D objects
-        self.objects = [
-            VirtualObject(200, 200, 60, (0, 255, 255), "circle"),  # Yellow ball
-            VirtualObject(400, 300, 80, (255, 100, 100), "cube"),   # Blue cube
-            VirtualObject(600, 250, 50, (100, 255, 100), "circle"), # Green ball
-        ]
-        
-        # 3D objects
-        self.objects_3d = []
-        
-        # Load multiple CAD components for testing
-        cad_models = [
-            {
-                "path": "online/Wooden Crate.obj",
-                "name": "Wood Crate",
-                "position": (0.0, 0.0, -4.0),
-                "scale": 0.7,
-                "color": (100, 150, 255)
-            },
-            {
-                "path": "online/Needle.obj",
-                "name": "Needle",
-                "position": (-2.5, 1.0, -3.0),
-                "scale": 1.2,
-                "color": (255, 80, 120)
-            },
-            {
-                "path": "ironman_simple.obj",
-                "name": "Iron Man",
-                "position": (3.0, 0.0, -2.0),
-                "scale": 0.7,
-                "color": (100, 150, 255)
-            },
-        ]
-        
-        for model_info in cad_models:
-            model_path = os.path.join(os.path.dirname(__file__), model_info["path"])
-            if os.path.exists(model_path):
-                obj_3d = VirtualObject3D(
-                    model_path, 
-                    x=model_info["position"][0], 
-                    y=model_info["position"][1], 
-                    z=model_info["position"][2],
-                    scale=model_info["scale"], 
-                    color=model_info["color"]
-                )
-                obj_3d.set_render_mode("solid")
-                # Set different auto-rotation speeds for variety
-                obj_3d.auto_rotation_speed = 0.01 + len(self.objects_3d) * 0.005
-                self.objects_3d.append(obj_3d)
-                print(f"✅ Loaded {model_info['name']} from {model_info['path']}")
-            else:
-                print(f"⚠️  {model_info['name']} not found at {model_path}")
-    
     def start(self):
         """Start the AR application"""
         # Try different camera indices with better error handling
