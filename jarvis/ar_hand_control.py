@@ -710,22 +710,6 @@ class ARHandController:
         # Create a black frame with 3D objects rendered
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         
-        # Add some visual elements to make it interesting for JARVIS
-        cv2.putText(frame, "AR Hand Control - JARVIS Test Mode", 
-                   (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        
-        if self.jarvis_activated:
-            cv2.putText(frame, "JARVIS ACTIVE - Voice Assistant Ready", 
-                       (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-            cv2.putText(frame, "Say 'What is this?' to analyze 3D objects", 
-                       (50, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-        
-        # Add instructions
-        cv2.putText(frame, "Press 'J' to toggle JARVIS", 
-                   (50, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
-        cv2.putText(frame, "Press '2' to show 3D objects", 
-                   (50, 700), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
-        
         return frame
     
     def save_screenshot_for_jarvis(self, frame):
@@ -872,14 +856,8 @@ class ARHandController:
                     print("🧠 Screenshot ready for JARVIS vision analysis")
                     print("💡 Open the web interface and activate JARVIS to analyze this image")
                 
-                cv2.putText(frame, "JARVIS ACTIVATED - Voice Assistant Ready", 
-                           (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                cv2.putText(frame, "Screenshot saved for analysis", 
-                           (50, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             else:
                 print("🤖 JARVIS deactivated")
-                cv2.putText(frame, "JARVIS DEACTIVATED", 
-                           (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         elif key == ord(' '):  # Spacebar
             # Cycle through 3D objects (select next one)
             if self.objects_3d:
@@ -1533,8 +1511,6 @@ class ARHandController:
         
         for i, instruction in enumerate(instructions):
             y_pos = 30 + i * 25
-            cv2.putText(frame, instruction, (10, y_pos), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         
         # Draw hand status with pinch feedback
         for hand_info in hands_info:
@@ -1575,29 +1551,13 @@ class ARHandController:
                 status = "OPEN"
                 color = (128, 128, 128)  # Gray for open
             
-            cv2.putText(frame, f"Hand {hand_idx}: {status}", 
-                       (palm_pos[0] - 60, palm_pos[1] - 25),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            
-            # Show pinch distance
             pinch_distance = hand_info['pinch_distance']
-            cv2.putText(frame, f"Distance: {int(pinch_distance)}", 
-                       (palm_pos[0] - 30, palm_pos[1] + 15),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         
         # Show object counts and mode info
         info_y = frame.shape[0] - 80
-        cv2.putText(frame, f"2D Objects: {len(self.objects)} {'(ON)' if self.show_2d_objects else '(OFF)'}", 
-                   (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        cv2.putText(frame, f"3D Objects: {len(self.objects_3d)} {'(ON)' if self.show_3d_objects else '(OFF)'}", 
-                   (10, info_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        
         if self.objects_3d:
             render_mode = self.objects_3d[0].render_mode
             auto_rotate = self.objects_3d[0].auto_rotate
-            cv2.putText(frame, f"3D Mode: {render_mode} | Auto-rotate: {'ON' if auto_rotate else 'OFF'}", 
-                       (10, info_y + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        
         return frame
     
     def _draw_rotation_hand_indicators(self, frame: np.ndarray, hands_info: List[dict]) -> np.ndarray:
@@ -1634,9 +1594,6 @@ class ARHandController:
                                 (text_x + text_size[0] + 5, text_y + 5), 
                                 (0, 0, 0), -1)
                     
-                    # Draw text
-                    cv2.putText(frame, text, (text_x, text_y), font, font_scale, (0, 255, 255), font_thickness)
-                    
                     # Draw directional hints based on axis mapping
                     arrow_color = (0, 255, 255)
                     arrow_length = 35
@@ -1658,8 +1615,6 @@ class ARHandController:
                             3,
                             tipLength=0.3,
                         )
-                        cv2.putText(frame, "UP", (hand_center[0] - 20, hand_center[1] - 15 - arrow_length), font, 0.4, arrow_color, 1)
-                        cv2.putText(frame, "DOWN", (hand_center[0] - 30, hand_center[1] + 25 + arrow_length), font, 0.4, arrow_color, 1)
                     else:
                         # Left/right arrows for Y-axis yaw
                         arrow_x = hand_center[0] + 50
@@ -1680,8 +1635,6 @@ class ARHandController:
                             3,
                             tipLength=0.3,
                         )
-                        cv2.putText(frame, "CW", (arrow_x - 15, arrow_y - 10), font, 0.4, arrow_color, 1)
-                        cv2.putText(frame, "CCW", (arrow_x + arrow_length - 5, arrow_y - 10), font, 0.4, arrow_color, 1)
         
         return frame
     
